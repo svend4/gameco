@@ -1,0 +1,6 @@
+{
+  "name": "Emoji Universe: Maze & RPG Studio",
+  "description": "Объединённая ретро-аркада и RPG-студия эмодзи: создавайте 3D-карточки героев с параллаксом, исследуйте процедурные лабиринты и сражайтесь с боссами на пошаговой арене.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
