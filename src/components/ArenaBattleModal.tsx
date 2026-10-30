@@ -178,7 +178,8 @@ export const ArenaBattleModal: React.FC<ArenaBattleModalProps> = ({
     currentPlayerHp: number,
     currentBossHp: number,
     activeBurn: number,
-    isFrozenNext: boolean
+    isFrozenNext: boolean,
+    shieldActive: boolean = false
   ) => {
     setTimeout(() => {
       let updatedBossHp = currentBossHp;
@@ -219,12 +220,13 @@ export const ArenaBattleModal: React.FC<ArenaBattleModalProps> = ({
         return;
       }
 
-      // 3. Normal Boss Counter-attack + Elite Affix Effects + Terrain Defense
+      // 3. Normal Boss Counter-attack + Elite Affix Effects + Terrain Defense + Energy Shield Block
       const { damage: rawDmg, isCrit } = calculateAttackDamage(enemy.attack, effectiveHeroDef, 0.15);
       const baseMitigated =
         synergy.passiveKey === 'HOLY_AEGIS' ? Math.max(5, Math.round(rawDmg * 0.78)) : rawDmg;
       const auraBonus = enemy.affix === 'BLAZING' ? 4 : 0;
-      const damage = baseMitigated + auraBonus;
+      const unshieldedDmg = baseMitigated + auraBonus;
+      const damage = shieldActive ? Math.max(3, Math.round(unshieldedDmg * 0.4)) : unshieldedDmg;
       const terrainRegen = terrainBuff?.healPerTurn ?? 0;
       const nextHp = Math.min(playerMaxHp, Math.max(0, currentPlayerHp - damage) + terrainRegen);
       setPHp(nextHp);
@@ -448,6 +450,63 @@ export const ArenaBattleModal: React.FC<ArenaBattleModalProps> = ({
     triggerMonsterCounterAttack(nextPlayerHp, nextBossHp, nextBurn, woven.inflictFreeze);
   };
 
+  const handlePlayerDefendShield = () => {
+    if (battleResult !== 'ACTIVE' || !isPlayerTurn) return;
+    const nextEnergy = Math.min(5, starEnergy + 2);
+    setStarEnergy(nextEnergy);
+    setTurnIndex((t) => t + 1);
+    soundFX.playHeal();
+    spawnPopup('HERO', '🛡️ БЛОК +2 ⚡', 'text-cyan-300 border-cyan-400');
+
+    setLogs((prev) => [
+      ...prev,
+      {
+        id: Date.now(),
+        message: `🛡️ ${hero.baseEmoji} активирует Энерго-Щит: входящий урон снижен на 60%, накоплено +2 ⚡ (Мана: ${nextEnergy}/5)!`,
+        type: 'HEAL',
+      },
+    ]);
+
+    setIsPlayerTurn(false);
+    triggerMonsterCounterAttack(pHp, bHp, bossBurnDmg, bossFrozen, true);
+  };
+
+  const handlePlayerUltimate = () => {
+    if (battleResult !== 'ACTIVE' || !isPlayerTurn || starEnergy < 3) return;
+    const ultDamage =
+      Math.round((hero.attack * 2.3 + 22) * elementalMultiplier) +
+      (activeFamiliar?.combatStrikeDamage ?? 0);
+    const ultHeal = 20 + (activeFamiliar?.combatHeal ?? 0);
+    const nextBossHp = Math.max(0, bHp - ultDamage);
+    const nextPlayerHp = Math.min(playerMaxHp, pHp + ultHeal);
+    const nextBonus = bonusCoinsEarned + 15;
+
+    setStarEnergy((e) => Math.max(0, e - 3));
+    setBHp(nextBossHp);
+    setPHp(nextPlayerHp);
+    setBonusCoinsEarned(nextBonus);
+    setTurnIndex((t) => t + 1);
+    soundFX.playSpell();
+    spawnPopup('BOSS', `☄️ -${ultDamage} УЛЬТА!`, 'text-amber-300 border-amber-400');
+
+    setLogs((prev) => [
+      ...prev,
+      {
+        id: Date.now(),
+        message: `☄️ УЛЬТИМАТУМ МУЛЬТИВСЕЛЕННОЙ! ${hero.baseEmoji} обрушивает Катаклизм (3 ⚡): ${ultDamage} урона, +${ultHeal} ОЗ, +15 🪙 и ОГЛУШАЕТ стража на 1 ход!`,
+        type: 'CRITICAL',
+      },
+    ]);
+
+    if (nextBossHp <= 0) {
+      setBattleResult('VICTORY');
+      soundFX.playVictory();
+      return;
+    }
+    // Boss is stunned for 1 turn — player keeps the turn!
+    setIsPlayerTurn(true);
+  };
+
   const spellInfo = ELEMENTAL_SPELLS[hero.backgroundStyle];
 
   return (
@@ -635,12 +694,12 @@ export const ArenaBattleModal: React.FC<ArenaBattleModalProps> = ({
         <div className="px-6 py-3.5 bg-[#1E1636] border-t border-purple-300/15 space-y-2.5">
           {battleResult === 'ACTIVE' ? (
             <>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                 <button
                   type="button"
                   disabled={!isPlayerTurn}
                   onClick={handlePlayerAttack}
-                  className="py-2.5 px-3 rounded-xl bg-rose-600 hover:bg-rose-500 disabled:opacity-40 text-white font-bold text-xs sm:text-sm transition-colors flex flex-col items-center"
+                  className="py-2 px-3 rounded-xl bg-rose-600 hover:bg-rose-500 disabled:opacity-40 text-white font-bold text-xs sm:text-sm transition-colors flex flex-col items-center"
                 >
                   <span>⚔️ Атака Оружием</span>
                   <span className="text-[11px] font-normal opacity-85">Урон + заряд (+1 ⚡)</span>
@@ -650,7 +709,7 @@ export const ArenaBattleModal: React.FC<ArenaBattleModalProps> = ({
                   type="button"
                   disabled={!isPlayerTurn}
                   onClick={handlePlayerHeal}
-                  className="py-2.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white font-bold text-xs sm:text-sm transition-colors flex flex-col items-center"
+                  className="py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white font-bold text-xs sm:text-sm transition-colors flex flex-col items-center"
                 >
                   <span>💖 Звёздный Эликсир</span>
                   <span className="text-[11px] font-normal opacity-85">Исцеление +25..40 ОЗ</span>
@@ -658,13 +717,35 @@ export const ArenaBattleModal: React.FC<ArenaBattleModalProps> = ({
 
                 <button
                   type="button"
+                  disabled={!isPlayerTurn}
+                  onClick={handlePlayerDefendShield}
+                  className="py-2 px-3 rounded-xl bg-cyan-600 hover:bg-cyan-500 disabled:opacity-40 text-white font-bold text-xs sm:text-sm transition-colors flex flex-col items-center"
+                >
+                  <span>🛡️ Энерго-Щит</span>
+                  <span className="text-[11px] font-normal opacity-85">Блок 60% урона +2 ⚡</span>
+                </button>
+
+                <button
+                  type="button"
                   disabled={!isPlayerTurn || starEnergy <= 0}
                   onClick={handlePlayerSpecial}
-                  className="py-2.5 px-3 rounded-xl bg-purple-600 hover:bg-purple-500 disabled:opacity-40 text-white font-bold text-xs sm:text-sm transition-colors flex flex-col items-center"
+                  className="py-2 px-3 rounded-xl bg-purple-600 hover:bg-purple-500 disabled:opacity-40 text-white font-bold text-xs sm:text-sm transition-colors flex flex-col items-center"
                 >
                   <span>{spellInfo.spellName}</span>
                   <span className="text-[11px] font-normal opacity-85">
                     Цена: 1 ⚡ (Зарядов: {starEnergy})
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  disabled={!isPlayerTurn || starEnergy < 3}
+                  onClick={handlePlayerUltimate}
+                  className="col-span-2 sm:col-span-2 py-2 px-3 rounded-xl bg-gradient-to-r from-amber-500 via-orange-500 to-rose-600 hover:from-amber-400 hover:to-rose-500 disabled:opacity-35 text-white font-extrabold text-xs sm:text-sm transition-all flex flex-col items-center shadow-lg"
+                >
+                  <span>☄️ Катаклизм Мультивселенной (Ульта + Оглушение Босса)</span>
+                  <span className="text-[11px] font-normal opacity-95">
+                    Цена: 3 ⚡ · Двойной урон +20 ОЗ +15 🪙 и босс пропускает ход!
                   </span>
                 </button>
               </div>

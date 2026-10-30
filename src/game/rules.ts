@@ -1,6 +1,6 @@
 export type TileType = 'WALL' | 'PATH' | 'STAR' | 'CHEST' | 'START' | 'EXIT';
 
-export type DifficultyKey = 'EASY' | 'MEDIUM' | 'HARD';
+export type DifficultyKey = 'BLITZ' | 'EASY' | 'MEDIUM' | 'HARD' | 'MEGA' | 'ULTRA';
 
 export interface DifficultyConfig {
   key: DifficultyKey;
@@ -13,6 +13,15 @@ export interface DifficultyConfig {
 }
 
 export const DIFFICULTIES: Record<DifficultyKey, DifficultyConfig> = {
+  BLITZ: {
+    key: 'BLITZ',
+    label: 'Блиц 7×7',
+    subtitle: '3 звезды · 1 страж',
+    rows: 7,
+    cols: 7,
+    starCount: 3,
+    enemyCount: 1,
+  },
   EASY: {
     key: 'EASY',
     label: 'Классика 9×9',
@@ -40,13 +49,39 @@ export const DIFFICULTIES: Record<DifficultyKey, DifficultyConfig> = {
     starCount: 9,
     enemyCount: 4,
   },
+  MEGA: {
+    key: 'MEGA',
+    label: 'Мега-Рейд 19×19',
+    subtitle: '12 звёзд · 5 стражей',
+    rows: 19,
+    cols: 19,
+    starCount: 12,
+    enemyCount: 5,
+  },
+  ULTRA: {
+    key: 'ULTRA',
+    label: 'Гигант 21×21',
+    subtitle: '16 звёзд · 7 стражей',
+    rows: 21,
+    cols: 21,
+    starCount: 16,
+    enemyCount: 7,
+  },
 };
 
 export type BackgroundStyle = 'Cosmic' | 'Neon' | 'Ocean' | 'Forest' | 'Gold';
 
 export type CharacterRole = 'Knight' | 'Mage' | 'Cyber-Ninja' | 'Chef' | 'Astronaut';
 
-export type BiomeKey = 'CYBER_NEON' | 'MEDIEVAL_CITADEL' | 'SUNKEN_ATLANTIS' | 'SOLAR_SUPERNOVA';
+export type BiomeKey =
+  | 'CYBER_NEON'
+  | 'MEDIEVAL_CITADEL'
+  | 'SUNKEN_ATLANTIS'
+  | 'SOLAR_SUPERNOVA'
+  | 'EMERALD_FOREST'
+  | 'CRYO_FROST'
+  | 'QUANTUM_VOID'
+  | 'RETRO_SYNTH';
 
 export interface BiomeDefinition {
   key: BiomeKey;
@@ -142,7 +177,95 @@ export const BIOMES: Record<BiomeKey, BiomeDefinition> = {
     keyLightHex: 0xfff3c4,
     rimLightHex: 0xf97316,
   },
+  EMERALD_FOREST: {
+    key: 'EMERALD_FOREST',
+    titleRu: '🍃 Изумрудный Эдем',
+    subtitleRu: 'Био-роща древних рун и живых кристаллов',
+    emoji: '🍃',
+    skyHex: 0x091c14,
+    fogHex: 0x091c14,
+    fogDensity: 0.02,
+    floorFill: '#0f291e',
+    floorStroke: '#1e4d38',
+    wallFill: '#1b4332',
+    wallStroke: '#0d2818',
+    capHex: 0x10b981,
+    borderTintHex: 0x34d399,
+    innerTintHex: 0x6ee7b7,
+    keyLightHex: 0xd1fae5,
+    rimLightHex: 0x10b981,
+  },
+  CRYO_FROST: {
+    key: 'CRYO_FROST',
+    titleRu: '❄️ Крио-Вальгалла',
+    subtitleRu: 'Зеркальный ледяной чертог вечной мерзлоты',
+    emoji: '❄️',
+    skyHex: 0x081629,
+    fogHex: 0x081629,
+    fogDensity: 0.022,
+    floorFill: '#0f233f',
+    floorStroke: '#1e457a',
+    wallFill: '#1d4ed8',
+    wallStroke: '#1e3a8a',
+    capHex: 0x38bdf8,
+    borderTintHex: 0x60a5fa,
+    innerTintHex: 0xbae6fd,
+    keyLightHex: 0xe0f2fe,
+    rimLightHex: 0x22d3ee,
+  },
+  QUANTUM_VOID: {
+    key: 'QUANTUM_VOID',
+    titleRu: '🌌 Квантовая Бездна',
+    subtitleRu: 'Астральный горизонт событий и тёмной материи',
+    emoji: '🌌',
+    skyHex: 0x070510,
+    fogHex: 0x070510,
+    fogDensity: 0.024,
+    floorFill: '#110c24',
+    floorStroke: '#3b1d70',
+    wallFill: '#2e1065',
+    wallStroke: '#170736',
+    capHex: 0xa855f7,
+    borderTintHex: 0xc084fc,
+    innerTintHex: 0xe9d5ff,
+    keyLightHex: 0xf3e8ff,
+    rimLightHex: 0xe879f9,
+  },
+  RETRO_SYNTH: {
+    key: 'RETRO_SYNTH',
+    titleRu: '🕹️ Синтвейв-Аркада 1984',
+    subtitleRu: 'Пурпурный закат и лазерные магистрали 80-х',
+    emoji: '🕹️',
+    skyHex: 0x1a0826,
+    fogHex: 0x1a0826,
+    fogDensity: 0.019,
+    floorFill: '#260b38',
+    floorStroke: '#831843',
+    wallFill: '#701a75',
+    wallStroke: '#4a044e',
+    capHex: 0xec4899,
+    borderTintHex: 0xf43f5e,
+    innerTintHex: 0xfbcfe8,
+    keyLightHex: 0xfce7f3,
+    rimLightHex: 0x06b6d4,
+  },
 };
+
+export const BIOME_ORDER: BiomeKey[] = [
+  'CYBER_NEON',
+  'MEDIEVAL_CITADEL',
+  'SUNKEN_ATLANTIS',
+  'SOLAR_SUPERNOVA',
+  'EMERALD_FOREST',
+  'CRYO_FROST',
+  'QUANTUM_VOID',
+  'RETRO_SYNTH',
+];
+
+export function getBiomeForLevel(level: number): BiomeDefinition {
+  const key = BIOME_ORDER[Math.max(0, level - 1) % BIOME_ORDER.length];
+  return BIOMES[key];
+}
 
 // ============================================================================
 // ITERATION 2 INNOVATION: 3D COMPANION FAMILIARS (ФАМИЛЬЯРЫ-СПУТНИКИ)
@@ -250,6 +373,7 @@ export interface HeroAvatar {
   defense: number;
   wins: number;
   mazesCleared: number;
+  upgradeLevel?: number;
   forgedRelicName?: string;
 }
 
@@ -268,31 +392,55 @@ export const SHOP_SKINS_CATALOG: ShopSkin[] = [
   { emoji: '❤️', name: 'Retro Heart', cost: 20, category: 'Love/Items', bonusStat: '+12 ОЗ' },
   { emoji: '🐱', name: 'Neko Kitty', cost: 25, category: 'Animals', bonusStat: '+3 ЗАЩ' },
   { emoji: '🤠', name: 'Retro Cowboy', cost: 30, category: 'Smiley', bonusStat: '+5 АТК' },
+  { emoji: '🦁', name: 'Solar Lion', cost: 35, category: 'Animals', bonusStat: '+7 АТК' },
   { emoji: '👾', name: 'Space Invader', cost: 40, category: 'Retro', bonusStat: '+6 АТК' },
   { emoji: '🐸', name: 'Crono Frog', cost: 45, category: 'Animals', bonusStat: '+5 ЗАЩ' },
   { emoji: '🤡', name: 'Arcade Clown', cost: 50, category: 'Smiley', bonusStat: '+10 ОЗ' },
   { emoji: '💖', name: 'Vibrant Heart', cost: 55, category: 'Love/Items', bonusStat: '+18 ОЗ' },
   { emoji: '🤖', name: 'Robo Pixel', cost: 60, category: 'Retro', bonusStat: '+7 ЗАЩ' },
+  { emoji: '🐼', name: 'Zen Panda', cost: 65, category: 'Animals', bonusStat: '+16 ОЗ' },
   { emoji: '🍕', name: 'Pixel Pizza', cost: 70, category: 'Love/Items', bonusStat: '+15 ОЗ' },
   { emoji: '🐙', name: 'Oishi Octopus', cost: 75, category: 'Animals', bonusStat: '+6 АТК' },
+  { emoji: '🦉', name: 'Arcane Owl', cost: 85, category: 'Animals', bonusStat: '+8 АТК' },
+  { emoji: '🐧', name: 'Frost Penguin', cost: 90, category: 'Animals', bonusStat: '+8 ЗАЩ' },
   { emoji: '🦄', name: 'Dream Unicorn', cost: 100, category: 'Animals', bonusStat: '+8 АТК' },
   { emoji: '💎', name: 'Classic Gem', cost: 110, category: 'Love/Items', bonusStat: '+9 ЗАЩ' },
   { emoji: '👽', name: 'Cosmic Alien', cost: 120, category: 'Retro', bonusStat: '+9 АТК' },
   { emoji: '🐉', name: 'Dragon Quest', cost: 150, category: 'Animals', bonusStat: '+12 АТК' },
   { emoji: '🔮', name: 'Magic Orb', cost: 180, category: 'Retro', bonusStat: '+11 АТК' },
   { emoji: '🏁', name: 'Checker Finish', cost: 200, category: 'Love/Items', bonusStat: '+15 ОЗ / +8 АТК' },
+  { emoji: '👑', name: 'Golden Sovereign', cost: 240, category: 'Love/Items', bonusStat: '+20 ОЗ / +12 АТК' },
+];
+
+export interface AchievementDef {
+  id: string;
+  icon: string;
+  title: string;
+  desc: string;
+  rewardCoins: number;
+}
+
+export const ACHIEVEMENTS_CATALOG: AchievementDef[] = [
+  { id: 'ach-first-win', icon: '🏆', title: 'Первая Кровь Арены', desc: 'Победите первого 3D-стража в RPG-дуэли', rewardCoins: 25 },
+  { id: 'ach-sector-3', icon: '🚀', title: 'Покоритель Мультивселенной', desc: 'Достигните 3-го сектора лабиринта', rewardCoins: 40 },
+  { id: 'ach-skin-collector', icon: '🕹️', title: 'Коллекционер Аркады', desc: 'Разблокируйте 6 скинов в шкафу эмодзи', rewardCoins: 35 },
+  { id: 'ach-blacksmith', icon: '🔨', title: 'Мастер Кузницы', desc: 'Прокачайте любого героя в Кузнице или выкуйте реликвию', rewardCoins: 30 },
+  { id: 'ach-portal-jumper', icon: '🌀', title: 'Квантовый Прыгун', desc: 'Совершите прыжок через телепорт в лабиринте', rewardCoins: 25 },
+  { id: 'ach-shrine-blessed', icon: '⛩️', title: 'Благословение Древних', desc: 'Активируйте Древний Алтарь в лабиринте', rewardCoins: 25 },
+  { id: 'ach-wealthy', icon: '💎', title: 'Казначей Галактики', desc: 'Накопите 150 золотых монет на счету', rewardCoins: 50 },
+  { id: 'ach-squad-leader', icon: '🎭', title: 'Командир Отряда', desc: 'Соберите галерею из 4+ уникальных героев', rewardCoins: 30 },
 ];
 
 export const BASE_EMOJI_OPTIONS = [
-  '🦊', '🤠', '😎', '🤖', '👽', '👾', '🦄', '🐉', '🦁', '🐯', '🐼', '🐨', '🐱', '🐸', '🐙', '😀', '🤡', '🦉', '🐧', '🔮'
+  '🦊', '🤠', '😎', '🤖', '👽', '👾', '🦄', '🐉', '🦁', '🐯', '🐼', '🐨', '🐱', '🐸', '🐙', '😀', '🤡', '🦉', '🐧', '🔮', '🦋', '🦖', '🦈', '🦅'
 ];
 
 export const ACCESSORY_EMOJI_OPTIONS = [
-  '👑', '⚔️', '🛡️', '🕶️', '🎧', '🎩', '🔥', '⚡', '❄️', '💎', '🚀', '🎸', '🎒', '🍀', '🎨', '✨'
+  '👑', '⚔️', '🛡️', '🕶️', '🎧', '🎩', '🔥', '⚡', '❄️', '💎', '🚀', '🎸', '🎒', '🍀', '🎨', '✨', '🔱', '🏹'
 ];
 
 export const FLAG_EMOJI_OPTIONS = [
-  '🏁', '🏴‍☠️', '🌌', '🔮', '✨', '❤️', '🔥', '🌈', '🎖️', '🌍', '🚩', '🏳️‍🌈', '⚡'
+  '🏁', '🏴‍☠️', '🌌', '🔮', '✨', '❤️', '🔥', '🌈', '🎖️', '🌍', '🚩', '🏳️‍🌈', '⚡', '☀️', '🌙'
 ];
 
 export const ROLE_METADATA: Record<CharacterRole, { titleRu: string; badge: string; baseHp: number; baseAtk: number; baseDef: number; desc: string }> = {
@@ -1572,6 +1720,7 @@ export type DimensionalMode =
   | '2.5d-diorama'
   | '3d-chase'
   | '3.5d-quantum'
+  | 'first-person'
   | '2d-classic';
 
 export interface DimensionalModeMeta {
@@ -1615,6 +1764,14 @@ export const DIMENSIONAL_MODE_META: Record<DimensionalMode, DimensionalModeMeta>
     shortLabelRu: '🌀 3.5D Квантум',
     descRu: '4-мерная гиперпроекция (3D + Время/Фаза): шлейф из 4 хроно-фантомов [Z], фазовый прицел сквозь стены [Q] и рентген-лучи',
     fov: 54,
+  },
+  'first-person': {
+    id: 'first-person',
+    badge: '1-е Лицо',
+    labelRu: '👁️ 1-е Лицо (FPV)',
+    shortLabelRu: '👁️ 1-е Лицо',
+    descRu: 'Погружение от первого лица из глаз героя с факельным светом внутри коридоров лабиринта',
+    fov: 62,
   },
   '2d-classic': {
     id: '2d-classic',
@@ -2517,4 +2674,558 @@ export function computeTransitRewardConversion(
     bonusHpHeal,
   };
 }
+
+// ============================================================================
+// OMNI-MERGE & MULTIVERSE RECONCILIATION ADDITIONS (v1–v6 FULL INTEGRATION)
+// ============================================================================
+
+export function resolveTeleportDestination(
+  portals: PortalPair | null,
+  r: number,
+  c: number
+): Position | null {
+  if (!portals) return null;
+  if (portals.a.r === r && portals.a.c === c) return { ...portals.b };
+  if (portals.b.r === r && portals.b.c === c) return { ...portals.a };
+  return null;
+}
+
+/**
+ * Breadth-First Search (BFS) shortest pathfinder from `from` to `to`.
+ * Used for the Golden Guidance Trail [G], Auto-Step [N], and Full AI Autopilot [I].
+ */
+export function findShortestPath(
+  maze: MazeData,
+  from: Position,
+  to: Position,
+  phaseGatesOpen: boolean = false
+): Position[] {
+  if (from.r === to.r && from.c === to.c) return [];
+
+  const rows = maze.rows;
+  const cols = maze.cols;
+  const visited: boolean[][] = Array.from({ length: rows }, () =>
+    Array.from({ length: cols }, () => false)
+  );
+  const parent: (Position | null)[][] = Array.from({ length: rows }, () =>
+    Array.from({ length: cols }, () => null)
+  );
+
+  const queue: Position[] = [from];
+  visited[from.r][from.c] = true;
+
+  const dirs = [
+    { dr: -1, dc: 0 },
+    { dr: 1, dc: 0 },
+    { dr: 0, dc: -1 },
+    { dr: 0, dc: 1 },
+  ];
+
+  while (queue.length > 0) {
+    const curr = queue.shift()!;
+    if (curr.r === to.r && curr.c === to.c) {
+      const path: Position[] = [];
+      let trace: Position | null = curr;
+      while (trace && !(trace.r === from.r && trace.c === from.c)) {
+        path.push(trace);
+        trace = parent[trace.r][trace.c];
+      }
+      return path.reverse();
+    }
+
+    for (const d of dirs) {
+      const nr = curr.r + d.dr;
+      const nc = curr.c + d.dc;
+      if (isWalkableTile(maze, nr, nc, phaseGatesOpen) && !visited[nr][nc]) {
+        visited[nr][nc] = true;
+        parent[nr][nc] = curr;
+        queue.push({ r: nr, c: nc });
+      }
+    }
+  }
+
+  return [];
+}
+
+/**
+ * Destroys up to 4 adjacent inner WALL tiles around `pos` (Wall-Breaker Bomb 💣).
+ */
+export function destroyAdjacentWalls(
+  maze: MazeData,
+  pos: Position
+): { nextMaze: MazeData; destroyedCount: number } {
+  const nextGrid = maze.grid.map((row) => [...row]);
+  let destroyedCount = 0;
+  const dirs = [
+    { dr: -1, dc: 0 },
+    { dr: 1, dc: 0 },
+    { dr: 0, dc: -1 },
+    { dr: 0, dc: 1 },
+  ];
+
+  for (const d of dirs) {
+    const nr = pos.r + d.dr;
+    const nc = pos.c + d.dc;
+    if (
+      nr >= 1 &&
+      nr < maze.rows - 1 &&
+      nc >= 1 &&
+      nc < maze.cols - 1 &&
+      nextGrid[nr][nc] === 'WALL'
+    ) {
+      nextGrid[nr][nc] = 'PATH';
+      destroyedCount++;
+    }
+  }
+
+  return {
+    nextMaze: {
+      ...maze,
+      grid: nextGrid,
+    },
+    destroyedCount,
+  };
+}
+
+/**
+ * Toggles an inner wall/path tile in Sandbox Architect mode.
+ */
+export function toggleMazeWall(maze: MazeData, pos: Position): MazeData {
+  if (
+    pos.r <= 0 ||
+    pos.r >= maze.rows - 1 ||
+    pos.c <= 0 ||
+    pos.c >= maze.cols - 1
+  ) {
+    return maze;
+  }
+  const tile = maze.grid[pos.r][pos.c];
+  if (tile === 'START' || tile === 'EXIT') return maze;
+  const nextGrid = maze.grid.map((row) => [...row]);
+  nextGrid[pos.r][pos.c] = tile === 'WALL' ? 'PATH' : 'WALL';
+  return {
+    ...maze,
+    grid: nextGrid,
+  };
+}
+
+export function upgradeHeroTransaction(
+  hero: HeroAvatar,
+  coins: number,
+  cost: number = 25
+): { success: boolean; nextCoins: number; upgradedHero: HeroAvatar } {
+  if (coins < cost) {
+    return { success: false, nextCoins: coins, upgradedHero: hero };
+  }
+  const currentLvl = hero.upgradeLevel ?? 1;
+  return {
+    success: true,
+    nextCoins: coins - cost,
+    upgradedHero: {
+      ...hero,
+      hp: hero.hp + 15,
+      attack: hero.attack + 5,
+      defense: hero.defense + 4,
+      upgradeLevel: currentLvl + 1,
+    },
+  };
+}
+
+export const LEGENDARY_GITHUB_HEROES: HeroAvatar[] = [
+  {
+    id: 'hero-github-omni-paladin',
+    name: 'Кибер-Паладин Омега',
+    baseEmoji: '🤖',
+    accessoryEmoji: '🔱',
+    flagEmoji: '⚡',
+    backgroundStyle: 'Neon',
+    characterRole: 'Knight',
+    hp: 185,
+    attack: 38,
+    defense: 42,
+    wins: 7,
+    mazesCleared: 6,
+    upgradeLevel: 3,
+  },
+  {
+    id: 'hero-github-cosmic-seraph',
+    name: 'Серафим Мультивселенной',
+    baseEmoji: '🦄',
+    accessoryEmoji: '👑',
+    flagEmoji: '🌌',
+    backgroundStyle: 'Cosmic',
+    characterRole: 'Mage',
+    hp: 155,
+    attack: 48,
+    defense: 28,
+    wins: 9,
+    mazesCleared: 8,
+    upgradeLevel: 3,
+  },
+  {
+    id: 'hero-github-emerald-shogun',
+    name: 'Изумрудный Сёгун',
+    baseEmoji: '🐯',
+    accessoryEmoji: '⚔️',
+    flagEmoji: '🔥',
+    backgroundStyle: 'Forest',
+    characterRole: 'Cyber-Ninja',
+    hp: 165,
+    attack: 44,
+    defense: 32,
+    wins: 6,
+    mazesCleared: 5,
+    upgradeLevel: 2,
+  },
+];
+
+export type GameModeKey = 'CAMPAIGN' | 'SPEEDRUN' | 'ENDLESS' | 'SANDBOX';
+
+export interface GameModeConfig {
+  key: GameModeKey;
+  titleRu: string;
+  icon: string;
+  subtitleRu: string;
+  bonusCoinsMultiplier: number;
+  timeLimitSec: number | null;
+  allowWallEdit: boolean;
+}
+
+export const GAME_MODES: Record<GameModeKey, GameModeConfig> = {
+  CAMPAIGN: {
+    key: 'CAMPAIGN',
+    titleRu: 'Кампания Мультивселенной',
+    icon: '🗺️',
+    subtitleRu: 'Классическое прохождение 8 биомов с боссами и квестами',
+    bonusCoinsMultiplier: 1.0,
+    timeLimitSec: null,
+    allowWallEdit: false,
+  },
+  SPEEDRUN: {
+    key: 'SPEEDRUN',
+    titleRu: 'Спидран-Блиц (На Время)',
+    icon: '⏱️',
+    subtitleRu: 'Успейте зачистить сектор за 90 сек. за двойную награду (×2 🪙)!',
+    bonusCoinsMultiplier: 2.0,
+    timeLimitSec: 90,
+    allowWallEdit: false,
+  },
+  ENDLESS: {
+    key: 'ENDLESS',
+    titleRu: 'Бесконечный Рогалик',
+    icon: '♾️',
+    subtitleRu: 'Повышенная плотность сокровищ (+50% 🪙) и агрессивные стражи',
+    bonusCoinsMultiplier: 1.5,
+    timeLimitSec: null,
+    allowWallEdit: false,
+  },
+  SANDBOX: {
+    key: 'SANDBOX',
+    titleRu: 'Архитектор (Песочница)',
+    icon: '🧱',
+    subtitleRu: 'Ломайте и стройте стены прямо на ходу + бесконечный тест сборок',
+    bonusCoinsMultiplier: 1.2,
+    timeLimitSec: null,
+    allowWallEdit: true,
+  },
+};
+
+export type SectorAnomalyKey =
+  | 'STANDARD'
+  | 'STARFALL_BONUS'
+  | 'OVERCHARGE_MANA'
+  | 'REGEN_AURA'
+  | 'BOSS_FRENZY';
+
+export interface SectorAnomalyConfig {
+  key: SectorAnomalyKey;
+  titleRu: string;
+  icon: string;
+  descRu: string;
+  starCoinBonus: number;
+  startEnergyBonus: number;
+  stepHealAmount: number;
+  enemyRewardBonus: number;
+}
+
+export const SECTOR_ANOMALIES: Record<SectorAnomalyKey, SectorAnomalyConfig> = {
+  STANDARD: {
+    key: 'STANDARD',
+    titleRu: 'Стабильный Эфир',
+    icon: '⚖️',
+    descRu: 'Стандартные физические законы сектора',
+    starCoinBonus: 0,
+    startEnergyBonus: 0,
+    stepHealAmount: 0,
+    enemyRewardBonus: 0,
+  },
+  STARFALL_BONUS: {
+    key: 'STARFALL_BONUS',
+    titleRu: 'Золотой Звездопад',
+    icon: '🌠',
+    descRu: 'Каждая собранная звезда ⭐ приносит +10 доп. монет',
+    starCoinBonus: 10,
+    startEnergyBonus: 0,
+    stepHealAmount: 0,
+    enemyRewardBonus: 5,
+  },
+  OVERCHARGE_MANA: {
+    key: 'OVERCHARGE_MANA',
+    titleRu: 'Магнитная Буря Энергии',
+    icon: '⚡',
+    descRu: 'Старт каждого уровня сразу с 5/5 зарядами ⚡ для бомб и ульты',
+    starCoinBonus: 2,
+    startEnergyBonus: 3,
+    stepHealAmount: 0,
+    enemyRewardBonus: 5,
+  },
+  REGEN_AURA: {
+    key: 'REGEN_AURA',
+    titleRu: 'Изумрудный Бриз Жизни',
+    icon: '🍃',
+    descRu: 'Каждые 3 шага в лабиринте восстанавливают +4 ОЗ герою',
+    starCoinBonus: 0,
+    startEnergyBonus: 1,
+    stepHealAmount: 4,
+    enemyRewardBonus: 0,
+  },
+  BOSS_FRENZY: {
+    key: 'BOSS_FRENZY',
+    titleRu: 'Кровавая Луна Титанов',
+    icon: '🩸',
+    descRu: 'Победа над каждым стражем приносит +30 бонусных монет 🪙',
+    starCoinBonus: 4,
+    startEnergyBonus: 1,
+    stepHealAmount: 0,
+    enemyRewardBonus: 30,
+  },
+};
+
+export interface TalentNode {
+  id: string;
+  icon: string;
+  name: string;
+  desc: string;
+  maxRank: number;
+  baseCost: number;
+  statKey: 'hpPerRank' | 'atkPerRank' | 'defPerRank' | 'starCoinsPerRank' | 'critChancePerRank';
+  valuePerRank: number;
+}
+
+export const MULTIVERSE_TALENTS: TalentNode[] = [
+  {
+    id: 'talent-vitality-core',
+    icon: '❤️‍🔥',
+    name: 'Квантовое Сердце Титана',
+    desc: '+15 к максимальному ОЗ всех героев за каждый ранг',
+    maxRank: 5,
+    baseCost: 20,
+    statKey: 'hpPerRank',
+    valuePerRank: 15,
+  },
+  {
+    id: 'talent-plasma-blade',
+    icon: '⚔️',
+    name: 'Плазменная Заточка Клинка',
+    desc: '+5 к Атаке всех героев в дуэлях и лабиринте за ранг',
+    maxRank: 5,
+    baseCost: 25,
+    statKey: 'atkPerRank',
+    valuePerRank: 5,
+  },
+  {
+    id: 'talent-aegis-matrix',
+    icon: '🛡️',
+    name: 'Голографический Щит Эгиды',
+    desc: '+4 к Защите всех героев и снижение урона ловушек за ранг',
+    maxRank: 5,
+    baseCost: 20,
+    statKey: 'defPerRank',
+    valuePerRank: 4,
+  },
+  {
+    id: 'talent-star-alchemist',
+    icon: '🪙',
+    name: 'Алхимия Звёздного Золота',
+    desc: '+3 золотые монеты дополнительно за каждую звезду ⭐',
+    maxRank: 5,
+    baseCost: 30,
+    statKey: 'starCoinsPerRank',
+    valuePerRank: 3,
+  },
+  {
+    id: 'talent-chrono-reflex',
+    icon: '🎯',
+    name: 'Нейро-Критический Импульс',
+    desc: '+4% к шансу критического удара в пошаговой RPG-Арене за ранг',
+    maxRank: 5,
+    baseCost: 25,
+    statKey: 'critChancePerRank',
+    valuePerRank: 0.04,
+  },
+];
+
+export function calculateTalentBonuses(talentRanks: Record<string, number>): {
+  bonusHp: number;
+  bonusAtk: number;
+  bonusDef: number;
+  bonusStarCoins: number;
+  bonusCritChance: number;
+  totalRanks: number;
+} {
+  let bonusHp = 0;
+  let bonusAtk = 0;
+  let bonusDef = 0;
+  let bonusStarCoins = 0;
+  let bonusCritChance = 0;
+  let totalRanks = 0;
+
+  for (const node of MULTIVERSE_TALENTS) {
+    const rank = Math.max(0, Math.min(node.maxRank, talentRanks[node.id] ?? 0));
+    totalRanks += rank;
+    if (node.statKey === 'hpPerRank') bonusHp += rank * node.valuePerRank;
+    if (node.statKey === 'atkPerRank') bonusAtk += rank * node.valuePerRank;
+    if (node.statKey === 'defPerRank') bonusDef += rank * node.valuePerRank;
+    if (node.statKey === 'starCoinsPerRank') bonusStarCoins += rank * node.valuePerRank;
+    if (node.statKey === 'critChancePerRank') bonusCritChance += rank * node.valuePerRank;
+  }
+
+  return { bonusHp, bonusAtk, bonusDef, bonusStarCoins, bonusCritChance, totalRanks };
+}
+
+export interface MultiverseProfileSnapshot {
+  version: string;
+  coins: number;
+  level: number;
+  heroes: HeroAvatar[];
+  unlockedSkins: string[];
+  claimedAchievements: string[];
+  talentRanks: Record<string, number>;
+}
+
+/**
+ * Pure additive omni-merge function:
+ * Merges two profile/branch snapshots WITHOUT deleting any heroes, skins, achievements, or talents.
+ */
+export function mergeMultiverseProfiles(
+  current: MultiverseProfileSnapshot,
+  incoming: Partial<MultiverseProfileSnapshot>
+): MultiverseProfileSnapshot {
+  const heroMap = new Map<string, HeroAvatar>();
+  for (const h of current.heroes) {
+    heroMap.set(h.id, { ...h });
+  }
+  for (const inc of incoming.heroes ?? []) {
+    const existing = heroMap.get(inc.id);
+    if (!existing) {
+      heroMap.set(inc.id, { ...inc });
+    } else {
+      heroMap.set(inc.id, {
+        ...existing,
+        hp: Math.max(existing.hp, inc.hp),
+        attack: Math.max(existing.attack, inc.attack),
+        defense: Math.max(existing.defense, inc.defense),
+        wins: Math.max(existing.wins, inc.wins ?? 0),
+        mazesCleared: Math.max(existing.mazesCleared, inc.mazesCleared ?? 0),
+        upgradeLevel: Math.max(existing.upgradeLevel ?? 1, inc.upgradeLevel ?? 1),
+      });
+    }
+  }
+
+  const mergedSkins = Array.from(
+    new Set([...current.unlockedSkins, ...(incoming.unlockedSkins ?? [])])
+  );
+  const mergedAchievements = Array.from(
+    new Set([...current.claimedAchievements, ...(incoming.claimedAchievements ?? [])])
+  );
+
+  const mergedTalents: Record<string, number> = { ...current.talentRanks };
+  if (incoming.talentRanks) {
+    for (const [k, v] of Object.entries(incoming.talentRanks)) {
+      mergedTalents[k] = Math.max(mergedTalents[k] ?? 0, Number(v) || 0);
+    }
+  }
+
+  return {
+    version: 'v6.0-Omni-Multiverse',
+    coins: current.coins + Math.max(0, incoming.coins ?? 0),
+    level: Math.max(current.level, incoming.level ?? 1),
+    heroes: Array.from(heroMap.values()),
+    unlockedSkins: mergedSkins,
+    claimedAchievements: mergedAchievements,
+    talentRanks: mergedTalents,
+  };
+}
+
+/**
+ * Resolves Git conflict markers (`<<<<<<<`, `=======`, `>>>>>>>`) using the
+ * "Accept Both Changes (Additive Enrichment)" strategy so zero lines from either branch are lost.
+ */
+export function resolveGitConflictAdditive(rawText: string): {
+  resolvedCode: string;
+  conflictsResolved: number;
+  linesAdded: number;
+} {
+  const lines = rawText.split(/\r?\n/);
+  const output: string[] = [];
+  let inConflict = false;
+  let inOurs = false;
+  let inTheirs = false;
+  let oursBuffer: string[] = [];
+  let theirsBuffer: string[] = [];
+  let conflictsResolved = 0;
+  let linesAdded = 0;
+
+  for (const line of lines) {
+    if (line.startsWith('<<<<<<<')) {
+      inConflict = true;
+      inOurs = true;
+      inTheirs = false;
+      oursBuffer = [];
+      theirsBuffer = [];
+      continue;
+    }
+    if (inConflict && line.startsWith('=======')) {
+      inOurs = false;
+      inTheirs = true;
+      continue;
+    }
+    if (inConflict && line.startsWith('>>>>>>>')) {
+      const combined = [...oursBuffer];
+      for (const tLine of theirsBuffer) {
+        if (!combined.includes(tLine) || tLine.trim() === '' || tLine.trim() === '}' || tLine.trim() === '};') {
+          combined.push(tLine);
+          linesAdded++;
+        }
+      }
+      output.push(...combined);
+      inConflict = false;
+      inOurs = false;
+      inTheirs = false;
+      conflictsResolved++;
+      continue;
+    }
+
+    if (inConflict) {
+      if (inOurs) {
+        oursBuffer.push(line);
+      } else if (inTheirs) {
+        theirsBuffer.push(line);
+      }
+    } else {
+      output.push(line);
+    }
+  }
+
+  if (inConflict) {
+    output.push(...oursBuffer, ...theirsBuffer);
+  }
+
+  return {
+    resolvedCode: output.join('\n'),
+    conflictsResolved,
+    linesAdded,
+  };
+}
+
 

@@ -1,16 +1,20 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
+  ACHIEVEMENTS_CATALOG,
   ALCHEMICAL_POTIONS_CATALOG,
   AlchemicalPotionId,
+  BIOME_ORDER,
   BiomeKey,
   BIOMES,
   BOSS_ROSTER,
   BountyContract,
   calculateHeroStats,
+  calculateTalentBonuses,
   castCorridorShockwave,
   computeQuantumPhaseTarget,
   computeRunMasteryGrade,
   computeTargetCompass,
+  destroyAdjacentWalls,
   DIFFICULTIES,
   DifficultyKey,
   DimensionalMode,
@@ -21,6 +25,9 @@ import {
   evaluateTerrainCombatBuff,
   FamiliarId,
   FAMILIARS_CATALOG,
+  findShortestPath,
+  GAME_MODES,
+  GameModeKey,
   generateMaze,
   generateNextTierBounty,
   GUILD_ORDERS_CATALOG,
@@ -31,19 +38,25 @@ import {
   isWalkableTile,
   MazeData,
   MazeEnemy,
+  MultiverseProfileSnapshot,
   Position,
   purchaseSkinTransaction,
   ROGUELIKE_PERKS_POOL,
   RoguelikePerk,
   ROLE_METADATA,
+  SECTOR_ANOMALIES,
   SECTOR_WEATHERS_CATALOG,
+  SectorAnomalyKey,
   SectorWeatherKey,
+  SHOP_SKINS_CATALOG,
   ShopSkin,
   stepEnemies,
   SURREAL_THEMES,
   TAROT_CARDS_CATALOG,
   TarotCardId,
+  toggleMazeWall,
   TransitRewardPackage,
+  upgradeHeroTransaction,
   HarmonyRecord,
 } from './game/rules';
 import { soundFX } from './game/sound';
@@ -54,6 +67,7 @@ import { SynergyCodexModal } from './components/SynergyCodexModal';
 import { Maze3DViewport, VfxBurstPayload } from './components/Maze3DViewport';
 import { CartographerMinimap } from './components/CartographerMinimap';
 import { LiminalStargateTransitModal } from './components/LiminalStargateTransitModal';
+import { GitHubOmniMergeModal } from './components/GitHubOmniMergeModal';
 
 type ShellState = 'title' | 'playing' | 'paused' | 'gameover';
 
@@ -160,14 +174,57 @@ export default function App() {
     return 'ORDER_TEMPLARS';
   });
 
+  const [claimedAchievements, setClaimedAchievements] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved && Array.isArray(JSON.parse(saved).claimedAchievements)) {
+        return JSON.parse(saved).claimedAchievements;
+      }
+    } catch {}
+    return [];
+  });
+
+  const [talentRanks, setTalentRanks] = useState<Record<string, number>>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved && JSON.parse(saved).talentRanks) return JSON.parse(saved).talentRanks;
+    } catch {}
+    return {};
+  });
+
+  const [gameMode, setGameMode] = useState<GameModeKey>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved && JSON.parse(saved).gameMode) return JSON.parse(saved).gameMode;
+    } catch {}
+    return 'CAMPAIGN';
+  });
+
+  const [sectorAnomaly, setSectorAnomaly] = useState<SectorAnomalyKey>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved && JSON.parse(saved).sectorAnomaly) return JSON.parse(saved).sectorAnomaly;
+    } catch {}
+    return 'STANDARD';
+  });
+
+  const talentBonuses = calculateTalentBonuses(talentRanks);
+
   const activeTarot =
     TAROT_CARDS_CATALOG.find((t) => t.id === activeTarotId) ?? TAROT_CARDS_CATALOG[0];
 
   const activeGuild =
     GUILD_ORDERS_CATALOG.find((g) => g.id === activeGuildId) ?? GUILD_ORDERS_CATALOG[0];
 
-  const activeHero =
+  const baseActiveHero =
     savedHeroes.find((h) => h.id === activeHeroId) || savedHeroes[0] || INITIAL_HERO_ROSTER[0];
+
+  const activeHero: HeroAvatar = {
+    ...baseActiveHero,
+    hp: baseActiveHero.hp + talentBonuses.bonusHp,
+    attack: baseActiveHero.attack + talentBonuses.bonusAtk,
+    defense: baseActiveHero.defense + talentBonuses.bonusDef,
+  };
 
   const activeFamiliar =
     FAMILIARS_CATALOG[activeFamiliarId] ?? FAMILIARS_CATALOG.owl;
@@ -175,8 +232,9 @@ export default function App() {
   const royalRank = evaluateRoyalRank(bountiesCompletedCount, highLevel, activeHero.wins);
   const tarotGoldMult = 1 + activeTarot.goldBonusPct / 100;
   const guildGoldMult = 1 + activeGuild.goldBonusPct / 100;
+  const modeGoldMult = GAME_MODES[gameMode]?.bonusCoinsMultiplier ?? 1.0;
   const royalGoldMultiplier =
-    (1 + royalRank.goldBonusPercent / 100) * tarotGoldMult * guildGoldMult;
+    (1 + royalRank.goldBonusPercent / 100) * tarotGoldMult * guildGoldMult * modeGoldMult;
 
   const activeSynergy = evaluateGlyphSynergy(
     activeHero.characterRole,
@@ -198,6 +256,8 @@ export default function App() {
   const [vfxBurst, setVfxBurst] = useState<VfxBurstPayload | null>(null);
   const [merchantOpen, setMerchantOpen] = useState<boolean>(false);
   const [transitOpen, setTransitOpen] = useState<boolean>(false);
+  const [omniModalOpen, setOmniModalOpen] = useState<boolean>(false);
+  const [autopilotActive, setAutopilotActive] = useState<boolean>(false);
   const [stargateThemeIdx, setStargateThemeIdx] = useState<number>(0);
   const [harmonyRecords, setHarmonyRecords] = useState<HarmonyRecord[]>(() => {
     try {
@@ -286,13 +346,49 @@ export default function App() {
 
   // Modals
   const [studioOpen, setStudioOpen] = useState<boolean>(false);
-  const [studioInitialTab, setStudioInitialTab] = useState<'builder' | 'gallery' | 'shop' | 'forge'>('builder');
+  const [studioInitialTab, setStudioInitialTab] = useState<'builder' | 'gallery' | 'shop' | 'forge' | 'hall'>('builder');
   const [codexOpen, setCodexOpen] = useState<boolean>(false);
   const [activeArenaEnemy, setActiveArenaEnemy] = useState<MazeEnemy | null>(null);
   const [runSummary, setRunSummary] = useState<RunSummary | null>(null);
 
   const runStartTimeRef = useRef<number>(Date.now());
   const spawnGraceUntilRef = useRef<number>(Date.now() + 3000);
+
+  // Auto-check and award Multiverse Achievements
+  useEffect(() => {
+    const newUnlocked: string[] = [];
+    if (savedHeroes.some((h) => h.wins >= 1) && !claimedAchievements.includes('ach-first-win')) {
+      newUnlocked.push('ach-first-win');
+    }
+    if (highLevel >= 3 && !claimedAchievements.includes('ach-sector-3')) {
+      newUnlocked.push('ach-sector-3');
+    }
+    if (unlockedSkins.length >= 6 && !claimedAchievements.includes('ach-skin-collector')) {
+      newUnlocked.push('ach-skin-collector');
+    }
+    if (
+      savedHeroes.some((h) => (h.upgradeLevel ?? 1) > 1 || Boolean(h.forgedRelicName)) &&
+      !claimedAchievements.includes('ach-blacksmith')
+    ) {
+      newUnlocked.push('ach-blacksmith');
+    }
+    if (coins >= 150 && !claimedAchievements.includes('ach-wealthy')) {
+      newUnlocked.push('ach-wealthy');
+    }
+    if (savedHeroes.length >= 4 && !claimedAchievements.includes('ach-squad-leader')) {
+      newUnlocked.push('ach-squad-leader');
+    }
+    if (newUnlocked.length > 0) {
+      const rewardSum = newUnlocked.reduce((sum, id) => {
+        const meta = ACHIEVEMENTS_CATALOG.find((a) => a.id === id);
+        return sum + (meta?.rewardCoins ?? 0);
+      }, 0);
+      setClaimedAchievements((prev) => Array.from(new Set([...prev, ...newUnlocked])));
+      if (rewardSum > 0) {
+        setCoins((c) => c + rewardSum);
+      }
+    }
+  }, [savedHeroes, highLevel, unlockedSkins.length, coins, claimedAchievements]);
 
   // Persist save state
   useEffect(() => {
@@ -312,6 +408,10 @@ export default function App() {
           activeGuildId,
           harmonyRecords,
           totalBreathingSec,
+          claimedAchievements,
+          talentRanks,
+          gameMode,
+          sectorAnomaly,
         })
       );
     } catch {}
@@ -328,6 +428,10 @@ export default function App() {
     activeGuildId,
     harmonyRecords,
     totalBreathingSec,
+    claimedAchievements,
+    talentRanks,
+    gameMode,
+    sectorAnomaly,
   ]);
 
   useEffect(() => {
@@ -410,7 +514,7 @@ export default function App() {
         'ASTRAL_STORM',
       ];
       if (targetLevel > 1) {
-        setBiomeKey(biomeOrder[(targetLevel - 1) % biomeOrder.length]);
+        setBiomeKey(BIOME_ORDER[(targetLevel - 1) % BIOME_ORDER.length]);
         setSectorWeather(weatherOrder[(targetLevel - 1) % weatherOrder.length]);
       }
 
@@ -418,6 +522,7 @@ export default function App() {
       const startHp = activeHero.hp + bonusHpFromPerk + activeGuild.bonusHp;
       const startQuantum =
         (activeSynergy.passiveKey === 'PHASE_WALK' ? 2 : 1) + activeGuild.bonusStartQuantum;
+      const anomalyCfg = SECTOR_ANOMALIES[sectorAnomaly] ?? SECTOR_ANOMALIES.STANDARD;
 
       setMaze(nextMaze);
       setPlayerPos({ r: 1, c: 1 });
@@ -429,11 +534,12 @@ export default function App() {
       setPhaseGatesOpen(activeTarot.autoOpenPhaseGates);
       setEnemyFrozenTurns(0);
       setMerchantOpen(false);
+      setAutopilotActive(false);
       setQuantumCharges(startQuantum);
       setEnemies(nextMaze.enemies);
       setPlayerHp(startHp);
       setTrailingHp(startHp);
-      setStarEnergy(Math.min(5, 2 + activeTarot.bonusStartMana));
+      setStarEnergy(Math.min(5, 2 + activeTarot.bonusStartMana + anomalyCfg.startEnergyBonus));
       setStarsCollectedRun(0);
       setEnemiesDefeatedRun(0);
       setCoinsEarnedRun(0);
@@ -444,7 +550,7 @@ export default function App() {
       setRunSummary(null);
       setSelectedPerkOnVictory(null);
       setActionLogMessage(
-        `Сектор #${targetLevel} [${activeGuild.emoji} ${activeGuild.titleRu} · ${SECTOR_WEATHERS_CATALOG[sectorWeather].badgeRu}]: в путь!`
+        `Сектор #${targetLevel} [${GAME_MODES[gameMode].icon} ${GAME_MODES[gameMode].titleRu} · ${activeGuild.emoji} ${activeGuild.titleRu}]: в путь!`
       );
       runStartTimeRef.current = Date.now();
       spawnGraceUntilRef.current = Date.now() + 3000;
@@ -463,6 +569,8 @@ export default function App() {
       activeTarot,
       activeGuild,
       sectorWeather,
+      sectorAnomaly,
+      gameMode,
     ]
   );
 
@@ -1111,7 +1219,76 @@ export default function App() {
     sectorWeather,
   ]);
 
-  // Global keyboard controls (WASD / Arrows / Q / Z / E / F / 1 / 2 / 3 / Enter / Space / P / R / M / H / C)
+  // Wall-Breaker Bomb [B] (costs 1 ⚡ mana, destroys up to 4 adjacent inner walls)
+  const handleWallBreakerBomb = useCallback(() => {
+    if (shellState !== 'playing' || activeArenaEnemy || studioOpen || codexOpen) return;
+    if (starEnergy < 1) {
+      setActionLogMessage('Для подрыва стен Бомбой [B] нужен минимум 1 заряд ⚡ маны!');
+      return;
+    }
+    const { nextMaze, destroyedCount } = destroyAdjacentWalls(maze, playerPos);
+    if (destroyedCount === 0) {
+      setActionLogMessage('Вокруг героя нет внутренних стен для разрушения Бомбой [B]!');
+      return;
+    }
+    setMaze(nextMaze);
+    setStarEnergy((e) => Math.max(0, e - 1));
+    soundFX.playAttack(true);
+    triggerShake();
+    emitVfxBurst(playerPos.r, playerPos.c, 0xf97316);
+    setActionLogMessage(`💣 Взрывная Бомба [B]! Разрушено стен вокруг героя: ${destroyedCount}!`);
+  }, [shellState, activeArenaEnemy, studioOpen, codexOpen, starEnergy, maze, playerPos, emitVfxBurst]);
+
+  // Single BFS Auto-Guidance Step [N]
+  const handleAutoGuidanceStep = useCallback(() => {
+    if (shellState !== 'playing' || activeArenaEnemy || studioOpen || codexOpen) return;
+    const targetGoal =
+      !keyCollected && maze.keyPos
+        ? maze.keyPos
+        : starsRemaining.length > 0
+        ? starsRemaining.reduce((best, curr) => {
+            const bDist = Math.abs(best.r - playerPos.r) + Math.abs(best.c - playerPos.c);
+            const cDist = Math.abs(curr.r - playerPos.r) + Math.abs(curr.c - playerPos.c);
+            return cDist < bDist ? curr : best;
+          }, starsRemaining[0])
+        : maze.exit;
+
+    const path = findShortestPath(maze, playerPos, targetGoal, phaseGatesOpen);
+    if (path.length > 0) {
+      const nextStep = path[0];
+      movePlayer(nextStep.r - playerPos.r, nextStep.c - playerPos.c, false);
+    } else if (!phaseGatesOpen && maze.leverPos) {
+      const leverPath = findShortestPath(maze, playerPos, maze.leverPos, false);
+      if (leverPath.length > 0) {
+        const nextStep = leverPath[0];
+        movePlayer(nextStep.r - playerPos.r, nextStep.c - playerPos.c, false);
+      }
+    }
+  }, [
+    shellState,
+    activeArenaEnemy,
+    studioOpen,
+    codexOpen,
+    keyCollected,
+    maze,
+    starsRemaining,
+    playerPos,
+    phaseGatesOpen,
+    movePlayer,
+  ]);
+
+  // Full AI Autopilot [I] loop
+  useEffect(() => {
+    if (!autopilotActive || shellState !== 'playing' || activeArenaEnemy || studioOpen || codexOpen) {
+      return;
+    }
+    const timer = setInterval(() => {
+      handleAutoGuidanceStep();
+    }, 260);
+    return () => clearInterval(timer);
+  }, [autopilotActive, shellState, activeArenaEnemy, studioOpen, codexOpen, handleAutoGuidanceStep]);
+
+  // Global keyboard controls (WASD / Arrows / Q / Z / E / F / B / N / I / G / 1 / 2 / 3 / Enter / Space / P / R / M / H / C)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (
@@ -1122,6 +1299,10 @@ export default function App() {
       }
 
       if (e.key === 'Escape') {
+        if (omniModalOpen) {
+          setOmniModalOpen(false);
+          return;
+        }
         if (transitOpen) {
           setTransitOpen(false);
           return;
@@ -1147,7 +1328,7 @@ export default function App() {
       }
 
       if (shellState === 'title') {
-        if ((e.key === 'Enter' || e.key === ' ') && !studioOpen && !codexOpen) {
+        if ((e.key === 'Enter' || e.key === ' ') && !studioOpen && !codexOpen && !omniModalOpen) {
           e.preventDefault();
           startMazeRun(level, difficulty);
         }
@@ -1194,6 +1375,32 @@ export default function App() {
         return;
       }
 
+      if (e.key.toLowerCase() === 'b' && shellState === 'playing' && !studioOpen && !codexOpen && !activeArenaEnemy) {
+        e.preventDefault();
+        handleWallBreakerBomb();
+        return;
+      }
+
+      if (e.key.toLowerCase() === 'n' && shellState === 'playing' && !studioOpen && !codexOpen && !activeArenaEnemy) {
+        e.preventDefault();
+        handleAutoGuidanceStep();
+        return;
+      }
+
+      if (e.key.toLowerCase() === 'i' && shellState === 'playing' && !studioOpen && !codexOpen && !activeArenaEnemy) {
+        e.preventDefault();
+        setAutopilotActive((prev) => {
+          const next = !prev;
+          setActionLogMessage(
+            next
+              ? '🤖 ИИ-Автопилот [I] ВКЛЮЧЁН: герой сам идёт по графу BFS к ключу, звёздам и выходу!'
+              : '🤖 ИИ-Автопилот [I] остановлен.'
+          );
+          return next;
+        });
+        return;
+      }
+
       if (e.key.toLowerCase() === 'g' && !studioOpen && !codexOpen && !activeArenaEnemy) {
         e.preventDefault();
         setTransitOpen((prev) => !prev);
@@ -1213,6 +1420,7 @@ export default function App() {
           '2.5d-diorama',
           '3d-chase',
           '3.5d-quantum',
+          'first-person',
           '2d-classic',
         ];
         setViewMode((v) => {
@@ -1270,6 +1478,8 @@ export default function App() {
     shellState,
     studioOpen,
     codexOpen,
+    omniModalOpen,
+    transitOpen,
     activeArenaEnemy,
     level,
     difficulty,
@@ -1280,6 +1490,8 @@ export default function App() {
     handleCorridorShockwave,
     handleCastPetrifyScroll,
     handleUseOrBrewPotion,
+    handleWallBreakerBomb,
+    handleAutoGuidanceStep,
     merchantOpen,
   ]);
 
@@ -1440,6 +1652,84 @@ export default function App() {
     );
   };
 
+  const handleUpgradeHero = (heroId: string) => {
+    const targetHero = savedHeroes.find((h) => h.id === heroId);
+    if (!targetHero) return;
+    const res = upgradeHeroTransaction(targetHero, coins, 25);
+    if (res.success) {
+      setCoins(res.nextCoins);
+      setSavedHeroes((prev) => prev.map((h) => (h.id === heroId ? res.upgradedHero : h)));
+      if (activeHero.id === heroId) {
+        setPlayerHp(res.upgradedHero.hp);
+        setTrailingHp(res.upgradedHero.hp);
+      }
+      soundFX.playVictory();
+      setActionLogMessage(`⬆️ Герой ${res.upgradedHero.name} повышен (+15 ОЗ, +5 АТК, +4 ЗАЩ)!`);
+    }
+  };
+
+  const handleRollGachaSkin = (): ShopSkin | null => {
+    if (coins < 30) return null;
+    const locked = SHOP_SKINS_CATALOG.filter((s) => !unlockedSkins.includes(s.emoji));
+    if (locked.length === 0) return null;
+    const picked = locked[Math.floor(Math.random() * locked.length)];
+    setCoins((c) => Math.max(0, c - 30));
+    setUnlockedSkins((prev) => (prev.includes(picked.emoji) ? prev : [...prev, picked.emoji]));
+    soundFX.playStarCollect();
+    return picked;
+  };
+
+  const handleChallengeBestiaryBoss = (bossIndex: number) => {
+    const template = BOSS_ROSTER[bossIndex % BOSS_ROSTER.length];
+    const scale = 1 + (level - 1) * 0.1;
+    setStudioOpen(false);
+    setActiveArenaEnemy({
+      id: `bestiary-boss-${Date.now()}`,
+      r: playerPos.r,
+      c: playerPos.c,
+      emoji: template.emoji,
+      name: template.name,
+      policy: template.policy,
+      elementWeakness: template.weakness,
+      patrolDir: { dr: 0, dc: 1 },
+      maxHp: Math.round(template.hp * scale),
+      hp: Math.round(template.hp * scale),
+      attack: Math.round(template.atk * scale),
+      defense: Math.round(template.def * scale),
+      rewardCoins: template.reward + level * 5,
+      telegraphing: false,
+    });
+  };
+
+  const handleUpgradeTalent = (talentId: string, cost?: number) => {
+    const node = MULTIVERSE_TALENTS.find((t) => t.id === talentId);
+    if (!node) return;
+    const currentRank = talentRanks[talentId] ?? 0;
+    const actualCost = cost ?? node.baseCost * (currentRank + 1);
+    if (currentRank >= node.maxRank || coins < actualCost) return;
+    setCoins((c) => Math.max(0, c - actualCost));
+    setTalentRanks((prev) => ({
+      ...prev,
+      [talentId]: currentRank + 1,
+    }));
+    soundFX.playStarCollect();
+    setActionLogMessage(`🌌 Талант Мультивселенной «${node.name}» улучшен до ранга ${currentRank + 1}!`);
+  };
+
+  const handleApplyMergedProfile = (merged: MultiverseProfileSnapshot, statusMsg?: string) => {
+    setCoins(merged.coins);
+    setHighLevel(merged.level);
+    setUnlockedSkins(merged.unlockedSkins);
+    setClaimedAchievements(merged.claimedAchievements);
+    setTalentRanks(merged.talentRanks);
+    setSavedHeroes(merged.heroes);
+    soundFX.playVictory();
+    setActionLogMessage(
+      statusMsg ??
+        `🔄 Аддитивное Омни-Слияние применено: ${merged.heroes.length} героев и ${merged.unlockedSkins.length} скинов!`
+    );
+  };
+
   const hpPercent = Math.max(0, Math.min(100, (playerHp / (activeHero.hp + activeGuild.bonusHp)) * 100));
   const trailingHpPercent = Math.max(
     0,
@@ -1557,13 +1847,13 @@ export default function App() {
                 </p>
               </div>
 
-              {/* 1. Difficulty Selector */}
+              {/* 1. Difficulty Selector (All 6 Multiverse Scales) */}
               <div className="space-y-1.5">
                 <div className="text-xs font-semibold text-purple-200">
-                  1. Размер и сложность 3D-лабиринта:
+                  1. Размер и сложность 3D-лабиринта (6 масштабов от 7×7 до 21×21):
                 </div>
-                <div className="grid grid-cols-3 gap-2">
-                  {(['EASY', 'MEDIUM', 'HARD'] as DifficultyKey[]).map((key) => {
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  {(['BLITZ', 'EASY', 'MEDIUM', 'HARD', 'MEGA', 'ULTRA'] as DifficultyKey[]).map((key) => {
                     const cfg = DIFFICULTIES[key];
                     const selected = difficulty === key;
                     return (
@@ -1571,53 +1861,51 @@ export default function App() {
                         key={key}
                         type="button"
                         onClick={() => setDifficulty(key)}
-                        className={`p-2.5 rounded-2xl border text-left transition-all ${
+                        className={`p-2 rounded-2xl border text-left transition-all ${
                           selected
                             ? 'bg-purple-600/35 border-purple-400 text-white shadow-md'
                             : 'bg-[#1D1636] border-purple-300/15 text-purple-200 hover:bg-purple-900/30'
                         }`}
                       >
-                        <div className="text-xs sm:text-sm font-bold whitespace-nowrap">{cfg.label}</div>
-                        <div className="text-[11px] text-purple-200/75 mt-0.5">{cfg.subtitle}</div>
+                        <div className="text-xs font-bold whitespace-nowrap">{cfg.label}</div>
+                        <div className="text-[10px] text-purple-200/75 mt-0.5 truncate">{cfg.subtitle}</div>
                       </button>
                     );
                   })}
                 </div>
               </div>
 
-              {/* 2. 3D Biome Selector (Medieval Citadel, Cyber Neon, Atlantis, Supernova) */}
+              {/* 2. 3D Biome Selector (All 8 Multiverse Biomes) */}
               <div className="space-y-1.5">
                 <div className="text-xs font-semibold text-purple-200">
-                  2. Эпоха и 3D-Биом Лабиринта (меняет освещение, факел и архитектуру):
+                  2. Эпоха и 3D-Биом Лабиринта (8 миров Мультивселенной):
                 </div>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                  {(['CYBER_NEON', 'MEDIEVAL_CITADEL', 'SUNKEN_ATLANTIS', 'SOLAR_SUPERNOVA'] as BiomeKey[]).map(
-                    (bKey) => {
-                      const b = BIOMES[bKey];
-                      const active = biomeKey === bKey;
-                      return (
-                        <button
-                          key={bKey}
-                          type="button"
-                          onClick={() => setBiomeKey(bKey)}
-                          className={`p-2.5 rounded-xl border text-left transition-all ${
-                            active
-                              ? 'bg-amber-500/25 border-amber-400 text-white shadow'
-                              : 'bg-[#1D1636] border-purple-300/15 text-purple-200 hover:bg-purple-900/30'
-                          }`}
-                        >
-                          <div className="text-xs font-bold truncate">{b.titleRu}</div>
-                          <div className="text-[10px] text-purple-200/70 truncate mt-0.5">
-                            {b.subtitleRu}
-                          </div>
-                        </button>
-                      );
-                    }
-                  )}
+                  {BIOME_ORDER.map((bKey) => {
+                    const b = BIOMES[bKey];
+                    const active = biomeKey === bKey;
+                    return (
+                      <button
+                        key={bKey}
+                        type="button"
+                        onClick={() => setBiomeKey(bKey)}
+                        className={`p-2 rounded-xl border text-left transition-all ${
+                          active
+                            ? 'bg-amber-500/25 border-amber-400 text-white shadow'
+                            : 'bg-[#1D1636] border-purple-300/15 text-purple-200 hover:bg-purple-900/30'
+                        }`}
+                      >
+                        <div className="text-xs font-bold truncate">{b.titleRu}</div>
+                        <div className="text-[10px] text-purple-200/70 truncate mt-0.5">
+                          {b.subtitleRu}
+                        </div>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
-              {/* Quick Settings Row + 2.5D Tarot + Guild Order + 4.5D Weather */}
+              {/* Quick Settings Row + 2.5D Tarot + Guild Order + 4.5D Weather + Game Mode + Anomaly */}
               <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button"
@@ -1627,6 +1915,8 @@ export default function App() {
                       '3.5d-quantum',
                       '2.5d-diorama',
                       '1.5d-wave',
+                      'first-person',
+                      '2d-classic',
                     ];
                     setViewMode((v) => order[(order.indexOf(v) + 1) % order.length]);
                   }}
@@ -1682,6 +1972,41 @@ export default function App() {
 
                 <button
                   type="button"
+                  onClick={() => {
+                    const gOrder: GameModeKey[] = [
+                      'CAMPAIGN',
+                      'SPEEDRUN',
+                      'ENDLESS',
+                      'SANDBOX',
+                    ];
+                    setGameMode((m) => gOrder[(gOrder.indexOf(m) + 1) % gOrder.length]);
+                  }}
+                  title={GAME_MODES[gameMode].subtitleRu}
+                  className="px-3 py-1.5 rounded-xl border bg-indigo-500/20 border-indigo-400/40 text-indigo-200 text-xs font-semibold transition-colors whitespace-nowrap"
+                >
+                  {GAME_MODES[gameMode].icon} {GAME_MODES[gameMode].titleRu}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    const aOrder: SectorAnomalyKey[] = [
+                      'STANDARD',
+                      'STARFALL_BONUS',
+                      'OVERCHARGE_MANA',
+                      'REGEN_AURA',
+                      'BOSS_FRENZY',
+                    ];
+                    setSectorAnomaly((a) => aOrder[(aOrder.indexOf(a) + 1) % aOrder.length]);
+                  }}
+                  title={SECTOR_ANOMALIES[sectorAnomaly].descRu}
+                  className="px-3 py-1.5 rounded-xl border bg-fuchsia-500/20 border-fuchsia-400/40 text-fuchsia-200 text-xs font-semibold transition-colors whitespace-nowrap"
+                >
+                  {SECTOR_ANOMALIES[sectorAnomaly].icon} {SECTOR_ANOMALIES[sectorAnomaly].titleRu}
+                </button>
+
+                <button
+                  type="button"
                   onClick={() => setEnemiesEnabled((v) => !v)}
                   className={`px-3 py-1.5 rounded-xl border text-xs font-semibold transition-colors whitespace-nowrap ${
                     enemiesEnabled
@@ -1691,10 +2016,22 @@ export default function App() {
                 >
                   {enemiesEnabled ? '👾 3D-Стражи: ВКЛ' : '👾 3D-Стражи: ВЫКЛ'}
                 </button>
+
+                <button
+                  type="button"
+                  onClick={() => setScanlinesEnabled((s) => !s)}
+                  className={`px-3 py-1.5 rounded-xl border text-xs font-semibold transition-colors whitespace-nowrap ${
+                    scanlinesEnabled
+                      ? 'bg-emerald-500/20 border-emerald-400/40 text-emerald-200'
+                      : 'bg-[#1D1636] border-purple-300/15 text-purple-300'
+                  }`}
+                >
+                  📺 ЭЛТ: {scanlinesEnabled ? 'ВКЛ' : 'ВЫКЛ'}
+                </button>
               </div>
 
               {/* Primary CTA & Studio Actions */}
-              <div className="flex flex-wrap sm:flex-nowrap items-center gap-2.5 pt-1">
+              <div className="flex flex-wrap items-center gap-2.5 pt-1">
                 <button
                   type="button"
                   data-start="true"
@@ -1722,6 +2059,14 @@ export default function App() {
                   className="px-4 py-3.5 rounded-2xl bg-indigo-600/35 hover:bg-indigo-600/55 border border-cyan-400/45 text-cyan-100 font-extrabold text-sm transition-colors whitespace-nowrap"
                 >
                   🌌 Stargate 4D-Транзит
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setOmniModalOpen(true)}
+                  className="px-4 py-3.5 rounded-2xl bg-amber-500/25 hover:bg-amber-500/40 border border-amber-400/45 text-amber-100 font-extrabold text-sm transition-colors whitespace-nowrap"
+                >
+                  🔄 GitHub Омни-Слияние & Таланты
                 </button>
 
                 <button
@@ -1986,13 +2331,7 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => {
-                    const order: BiomeKey[] = [
-                      'CYBER_NEON',
-                      'MEDIEVAL_CITADEL',
-                      'SUNKEN_ATLANTIS',
-                      'SOLAR_SUPERNOVA',
-                    ];
-                    const nextB = order[(order.indexOf(biomeKey) + 1) % order.length];
+                    const nextB = BIOME_ORDER[(BIOME_ORDER.indexOf(biomeKey) + 1) % BIOME_ORDER.length];
                     setBiomeKey(nextB);
                     setActionLogMessage(`Смена 3D-Биома: ${BIOMES[nextB].titleRu}!`);
                   }}
@@ -2009,6 +2348,13 @@ export default function App() {
                   className="px-2.5 py-1.5 rounded-xl bg-purple-600/35 hover:bg-purple-600/55 border border-purple-400/40 text-xs font-bold text-purple-100 whitespace-nowrap"
                 >
                   ⚗️ Кузница
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setOmniModalOpen(true)}
+                  className="px-2.5 py-1.5 rounded-xl bg-indigo-600/35 hover:bg-indigo-600/55 border border-indigo-400/40 text-xs font-bold text-indigo-100 whitespace-nowrap"
+                >
+                  🔄 GitHub
                 </button>
                 <button
                   type="button"
@@ -2128,6 +2474,7 @@ export default function App() {
                           '2.5d-diorama',
                           '3d-chase',
                           '3.5d-quantum',
+                          'first-person',
                           '2d-classic',
                         ] as DimensionalMode[]
                       ).map((mKey) => {
@@ -2174,6 +2521,32 @@ export default function App() {
                         className="px-2.5 py-1 rounded-lg bg-indigo-500/25 hover:bg-indigo-500/40 disabled:opacity-35 border border-indigo-400/40 text-[11px] font-bold text-indigo-200 whitespace-nowrap"
                       >
                         🗿 Свиток [F]
+                      </button>
+                      <button
+                        type="button"
+                        disabled={starEnergy < 1}
+                        onClick={handleWallBreakerBomb}
+                        className="px-2.5 py-1 rounded-lg bg-orange-500/25 hover:bg-orange-500/40 disabled:opacity-35 border border-orange-400/40 text-[11px] font-bold text-orange-200 whitespace-nowrap"
+                      >
+                        💣 Бомба [B]
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleAutoGuidanceStep}
+                        className="px-2.5 py-1 rounded-lg bg-teal-500/25 hover:bg-teal-500/40 border border-teal-400/40 text-[11px] font-bold text-teal-200 whitespace-nowrap"
+                      >
+                        🧭 Шаг ИИ [N]
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setAutopilotActive((prev) => !prev)}
+                        className={`px-2.5 py-1 rounded-lg border text-[11px] font-bold whitespace-nowrap ${
+                          autopilotActive
+                            ? 'bg-emerald-600 text-white border-emerald-300'
+                            : 'bg-emerald-500/20 hover:bg-emerald-500/35 border-emerald-400/40 text-emerald-200'
+                        }`}
+                      >
+                        🤖 Автопилот [I]: {autopilotActive ? 'ВКЛ' : 'ВЫКЛ'}
                       </button>
                       {ALCHEMICAL_POTIONS_CATALOG.map((pot) => {
                         const count = potionBelt[pot.id] ?? 0;
@@ -2673,9 +3046,13 @@ export default function App() {
         onSelectHero={handleSelectHero}
         onSaveNewHero={handleSaveNewHero}
         onDeleteHero={handleDeleteHero}
+        onUpgradeHero={handleUpgradeHero}
         coins={coins}
         unlockedSkins={unlockedSkins}
         onPurchaseOrEquipSkin={handlePurchaseOrEquipSkin}
+        onRollGachaSkin={handleRollGachaSkin}
+        claimedAchievements={claimedAchievements}
+        onChallengeBestiaryBoss={handleChallengeBestiaryBoss}
         onForgeRelicForActiveHero={handleForgeRelicForActiveHero}
         activeFamiliarId={activeFamiliarId}
         onSelectFamiliar={setActiveFamiliarId}
@@ -2734,6 +3111,23 @@ export default function App() {
           );
         }}
         onClose={() => setTransitOpen(false)}
+      />
+
+      <GitHubOmniMergeModal
+        isOpen={omniModalOpen}
+        onClose={() => setOmniModalOpen(false)}
+        coins={coins}
+        level={highLevel}
+        heroes={savedHeroes}
+        unlockedSkins={unlockedSkins}
+        claimedAchievements={claimedAchievements}
+        talentRanks={talentRanks}
+        gameMode={gameMode}
+        sectorAnomaly={sectorAnomaly}
+        onSelectGameMode={setGameMode}
+        onSelectAnomaly={setSectorAnomaly}
+        onUpgradeTalent={handleUpgradeTalent}
+        onApplyMergedProfile={handleApplyMergedProfile}
       />
     </div>
   );

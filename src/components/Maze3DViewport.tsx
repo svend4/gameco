@@ -14,7 +14,12 @@ import {
   SectorWeatherKey,
 } from '../game/rules';
 
-export type Camera3DMode = '1.5d-wave' | '2.5d-diorama' | '3d-chase' | '3.5d-quantum';
+export type Camera3DMode =
+  | '1.5d-wave'
+  | '2.5d-diorama'
+  | '3d-chase'
+  | '3.5d-quantum'
+  | 'first-person';
 
 export interface VfxBurstPayload {
   id: number;
@@ -42,7 +47,9 @@ interface Maze3DViewportProps {
   historyPositions?: Position[];
   quantumTarget?: Position | null;
   vfxBurst?: VfxBurstPayload | null;
+  guidancePath?: Position[];
   onMoveStep: (dr: number, dc: number) => void;
+  onToggleWall?: (pos: Position) => void;
 }
 
 const TILE_SIZE = 2.0;
@@ -1779,7 +1786,7 @@ export const Maze3DViewport: React.FC<Maze3DViewportProps> = ({
         }
       });
 
-      // Smoothly interpolate Camera FOV & Projection Position for 1.5D / 2.5D / 3.0D / 3.5D modes
+      // Smoothly interpolate Camera FOV & Projection Position for 1.5D / 2.5D / 3.0D / 3.5D / first-person modes
       const targetFov =
         camMode === '2.5d-diorama'
           ? 28
@@ -1787,14 +1794,29 @@ export const Maze3DViewport: React.FC<Maze3DViewportProps> = ({
           ? 42
           : camMode === '3.5d-quantum'
           ? 54
+          : camMode === 'first-person'
+          ? 62
           : 46;
       if (Math.abs(camera.fov - targetFov) > 0.05) {
         camera.fov = THREE.MathUtils.damp(camera.fov, targetFov, 6, dt);
         camera.updateProjectionMatrix();
       }
 
+      heroGroup.visible = camMode !== 'first-person';
+
       const shakeOffset = shake ? Math.sin(elapsed * 60) * 0.35 : 0;
-      if (camMode === '3d-chase') {
+      if (camMode === 'first-person') {
+        _targetCamPos.set(
+          heroGroup.position.x + shakeOffset,
+          1.45,
+          heroGroup.position.z + 1.85
+        );
+        _targetLookAt.set(
+          heroGroup.position.x,
+          0.95,
+          heroGroup.position.z - 4.5
+        );
+      } else if (camMode === '3d-chase') {
         _targetCamPos.set(
           heroGroup.position.x + shakeOffset,
           11.5,

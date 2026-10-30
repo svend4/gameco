@@ -200,6 +200,41 @@ export const SynergyCodexModal: React.FC<SynergyCodexModalProps> = ({
               </ul>
             </div>
           </div>
+
+          {/* GitHub Repository & Version Reconciliation Matrix */}
+          <div className="p-4 rounded-2xl bg-indigo-950/60 border border-indigo-400/40 space-y-2.5">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h3 className="text-base font-bold text-indigo-300">
+                🔄 Сверка с Репозиторием GitHub (Аддитивное Объединение v1.0 → v6.0 Без Удалений)
+              </h3>
+              <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-400/40 text-emerald-300 text-xs font-bold">
+                ✓ 100% Функций Объединены
+              </span>
+            </div>
+            <p className="text-xs text-purple-200/85 leading-relaxed">
+              В текущую сборку <strong>v6.0 Omni-Merge & Stargate 4D Edition</strong> объединены <strong>все без исключения функции</strong> из всех веток репозитория и всех чатов:
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 text-xs">
+              <div className="p-2.5 rounded-xl bg-black/35 border border-purple-300/15">
+                <div className="font-bold text-amber-300">📦 Ветки v1–v3 (База & 3D)</div>
+                <div className="text-purple-200/80 mt-0.5">
+                  3D-лабиринт Three.js, 2D-сетка, ЭЛТ-тумблер, Web Audio синтезатор, Конструктор карточек, PNG-экспорт, 24 скина + Гача-капсула.
+                </div>
+              </div>
+              <div className="p-2.5 rounded-xl bg-black/35 border border-purple-300/15">
+                <div className="font-bold text-cyan-300">🌌 Ветки v4–v5 (Мультивселенная & ИИ)</div>
+                <div className="text-purple-200/80 mt-0.5">
+                  8 3D-биомов, 6 масштабов лабиринта (7×7..21×21), 4 режима, 5 аномалий, ИИ-Автопилот BFS `[I]`, Дерево Талантов и GitHub Conflict Fixer.
+                </div>
+              </div>
+              <div className="p-2.5 rounded-xl bg-black/35 border border-purple-300/15">
+                <div className="font-bold text-emerald-300">🏰 Ветка v6 (Цитадель & Stargate 4D)</div>
+                <div className="text-purple-200/80 mt-0.5">
+                  Проекции 1.5D/2.5D/3.0D/3.5D/1-е лицо, Кузница Рун ⚗️, Синтезатор 3 рун 🎹, 3D-Фамильяры 🦉, Пояс Зелий `[1][2][3]`, Караван 🐪 и Транзит Stargate 4D.
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>

@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
 import {
   ACCESSORY_EMOJI_OPTIONS,
+  ACHIEVEMENTS_CATALOG,
   BackgroundStyle,
   BASE_EMOJI_OPTIONS,
+  BOSS_ROSTER,
   calculateHeroStats,
   CharacterRole,
   ELEMENTAL_SPELLS,
@@ -27,9 +29,11 @@ interface AvatarStudioModalProps {
   onSelectHero: (hero: HeroAvatar) => void;
   onSaveNewHero: (hero: HeroAvatar) => void;
   onDeleteHero: (id: string) => void;
+  onUpgradeHero?: (heroId: string) => void;
   coins: number;
   unlockedSkins: string[];
   onPurchaseOrEquipSkin: (skin: ShopSkin) => void;
+  onRollGachaSkin?: () => string | null;
   onForgeRelicForActiveHero?: (
     relicName: string,
     resultAccEmoji: string,
@@ -40,7 +44,9 @@ interface AvatarStudioModalProps {
   ) => void;
   activeFamiliarId?: FamiliarId;
   onSelectFamiliar?: (id: FamiliarId) => void;
-  initialTab?: 'builder' | 'gallery' | 'shop' | 'forge';
+  claimedAchievements?: string[];
+  onChallengeBestiaryBoss?: (bossIndex: number) => void;
+  initialTab?: 'builder' | 'gallery' | 'shop' | 'forge' | 'hall';
 }
 
 const NAME_PREFIXES = ['Ловкий', 'Мудрый', 'Кибер-', 'Звёздный', 'Неоновый', 'Древний', 'Астральный', 'Ретро-'];
@@ -54,15 +60,19 @@ export const AvatarStudioModal: React.FC<AvatarStudioModalProps> = ({
   onSelectHero,
   onSaveNewHero,
   onDeleteHero,
+  onUpgradeHero,
   coins,
   unlockedSkins,
   onPurchaseOrEquipSkin,
+  onRollGachaSkin,
   onForgeRelicForActiveHero,
   activeFamiliarId = 'owl',
   onSelectFamiliar,
+  claimedAchievements = [],
+  onChallengeBestiaryBoss,
   initialTab = 'builder',
 }) => {
-  const [activeTab, setActiveTab] = useState<'builder' | 'gallery' | 'shop' | 'forge'>(initialTab);
+  const [activeTab, setActiveTab] = useState<'builder' | 'gallery' | 'shop' | 'forge' | 'hall'>(initialTab);
   const [builderName, setBuilderName] = useState(activeHero.name);
   const [baseEmoji, setBaseEmoji] = useState(activeHero.baseEmoji);
   const [accessoryEmoji, setAccessoryEmoji] = useState(activeHero.accessoryEmoji);
@@ -292,6 +302,17 @@ export const AvatarStudioModal: React.FC<AvatarStudioModalProps> = ({
             }`}
           >
             🕹️ Шкаф Скинов ({unlockedSkins.length}/{SHOP_SKINS_CATALOG.length})
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('hall')}
+            className={`px-3.5 py-1.5 rounded-xl text-xs sm:text-sm font-semibold transition-colors whitespace-nowrap ${
+              activeTab === 'hall'
+                ? 'bg-emerald-600 text-white shadow-sm'
+                : 'text-emerald-200/85 hover:bg-white/5'
+            }`}
+          >
+            🏆 Достижения ({claimedAchievements.length}/{ACHIEVEMENTS_CATALOG.length}) и Бестиарий
           </button>
         </div>
 
@@ -744,6 +765,9 @@ export const AvatarStudioModal: React.FC<AvatarStudioModalProps> = ({
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
                           <h3 className="font-bold text-white text-base truncate">{hero.name}</h3>
+                          <span className="px-1.5 py-0.5 rounded bg-amber-500/20 border border-amber-400/40 text-[10px] font-mono-tabular font-bold text-amber-300">
+                            УР. {hero.upgradeLevel ?? 1}
+                          </span>
                           {isEquipped && (
                             <span className="text-xs font-semibold text-emerald-300">· Активен</span>
                           )}
@@ -756,21 +780,54 @@ export const AvatarStudioModal: React.FC<AvatarStudioModalProps> = ({
                           <span className="text-amber-300 font-semibold">⚔️ {hero.attack}</span>
                           <span className="text-emerald-300 font-semibold">🛡️ {hero.defense}</span>
                         </div>
-                        <div className="mt-2.5 flex items-center gap-2">
+                        <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
                           <button
                             type="button"
                             onClick={() => {
                               onSelectHero(hero);
                               setStatusNotice(`Выбран герой «${hero.name}»`);
                             }}
-                            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap ${
+                            className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap ${
                               isEquipped
                                 ? 'bg-emerald-600 text-white'
                                 : 'bg-purple-600 hover:bg-purple-500 text-white'
                             }`}
                           >
-                            {isEquipped ? 'Выбран в поход' : 'Выбрать бойца'}
+                            {isEquipped ? 'В походе' : 'Выбрать'}
                           </button>
+
+                          {onUpgradeHero && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (coins < 25) {
+                                  setStatusNotice('Для прокачки в Кузнице нужно 25 🪙!');
+                                  return;
+                                }
+                                onUpgradeHero(hero.id);
+                                setStatusNotice(
+                                  `🔨 Герой «${hero.name}» прокачан до УР. ${(hero.upgradeLevel ?? 1) + 1} (+15 ОЗ, +5 АТК, +4 ЗАЩ)!`
+                                );
+                              }}
+                              className="px-2.5 py-1.5 rounded-lg bg-amber-500/25 hover:bg-amber-500/40 border border-amber-400/40 text-amber-200 text-xs font-bold transition-colors whitespace-nowrap"
+                            >
+                              ⬆️ УР.+1 (25 🪙)
+                            </button>
+                          )}
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const code = `${hero.name}|${hero.baseEmoji}${hero.accessoryEmoji}${hero.flagEmoji}|${hero.characterRole}|${hero.backgroundStyle}|HP:${hero.hp}/ATK:${hero.attack}/DEF:${hero.defense}`;
+                              navigator.clipboard?.writeText(code).catch(() => {});
+                              setStatusNotice(`📋 Код сборки «${hero.name}» скопирован в буфер обмена!`);
+                            }}
+                            className="px-2 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-purple-200 text-xs font-semibold transition-colors"
+                            title="Скопировать код сборки героя"
+                          >
+                            📋 Код
+                          </button>
+
                           {savedHeroes.length > 1 && (
                             <button
                               type="button"
@@ -805,13 +862,23 @@ export const AvatarStudioModal: React.FC<AvatarStudioModalProps> = ({
                           : 'bg-[#22193D] text-purple-200 hover:bg-purple-900/40'
                       }`}
                     >
-                      {cat === 'All' ? 'Все Скины' : cat}
+                      {cat === 'All' ? 'Все 24 Скина' : cat}
                     </button>
                   ))}
                 </div>
-                <span className="text-xs text-purple-300/80">
-                  Покупка скина сразу устанавливает его на вашего текущего 3D-героя
-                </span>
+
+                {onRollGachaSkin && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const msg = onRollGachaSkin();
+                      if (msg) setStatusNotice(msg);
+                    }}
+                    className="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-amber-500 to-pink-600 hover:from-amber-400 hover:to-pink-500 text-white text-xs font-extrabold shadow-md transition-transform active:scale-95 whitespace-nowrap"
+                  >
+                    🎰 Капсула Удачи: Случайный Скин (30 🪙)
+                  </button>
+                )}
               </div>
 
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
@@ -863,6 +930,97 @@ export const AvatarStudioModal: React.FC<AvatarStudioModalProps> = ({
                     </button>
                   );
                 })}
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'hall' && (
+            <div className="space-y-6">
+              {/* Section 1: Achievements */}
+              <div>
+                <h3 className="text-sm font-extrabold text-amber-300 uppercase tracking-wider mb-3">
+                  🏆 Зал Славы и Медали Мультивселенной ({claimedAchievements.length}/{ACHIEVEMENTS_CATALOG.length})
+                </h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {ACHIEVEMENTS_CATALOG.map((ach) => {
+                    const unlocked = claimedAchievements.includes(ach.id);
+                    return (
+                      <div
+                        key={ach.id}
+                        className={`p-3.5 rounded-2xl border flex items-center gap-3.5 ${
+                          unlocked
+                            ? 'bg-amber-500/15 border-amber-400/50 text-white'
+                            : 'bg-[#140E26] border-purple-300/15 text-purple-300/60'
+                        }`}
+                      >
+                        <div className="w-11 h-11 rounded-xl bg-black/40 flex items-center justify-center text-2xl shrink-0">
+                          {ach.icon}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-xs sm:text-sm font-bold text-white truncate">
+                              {ach.title}
+                            </span>
+                            <span
+                              className={`text-[11px] font-mono-tabular font-bold px-2 py-0.5 rounded-md ${
+                                unlocked
+                                  ? 'bg-emerald-500/30 text-emerald-200'
+                                  : 'bg-white/5 text-amber-300/80'
+                              }`}
+                            >
+                              {unlocked ? 'ПОЛУЧЕНО ✓' : `+${ach.rewardCoins} 🪙`}
+                            </span>
+                          </div>
+                          <p className="text-xs text-purple-200/75 mt-0.5">{ach.desc}</p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Section 2: Interactive Boss Bestiary */}
+              <div>
+                <h3 className="text-sm font-extrabold text-rose-300 uppercase tracking-wider mb-3">
+                  👾 Бестиарий 3D-Стражей Лабиринта (Вызов на Прямую Дуэль)
+                </h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                  {BOSS_ROSTER.map((boss, idx) => (
+                    <div
+                      key={boss.name}
+                      className="p-3.5 rounded-2xl bg-[#22193D] border border-rose-400/25 flex flex-col justify-between gap-3"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="w-12 h-12 rounded-2xl bg-[#3B0A1E] border border-rose-400/40 flex items-center justify-center text-3xl shrink-0">
+                          {boss.emoji}
+                        </div>
+                        <div className="min-w-0">
+                          <div className="text-xs font-extrabold text-white truncate">
+                            {boss.name}
+                          </div>
+                          <div className="text-[11px] text-amber-300 font-semibold">
+                            Уязвимость: {ELEMENTAL_SPELLS[boss.weakness].title}
+                          </div>
+                          <div className="text-[11px] text-purple-200/80 font-mono-tabular">
+                            ❤️ {boss.hp} · ⚔️ {boss.atk} · 🪙 +{boss.reward}
+                          </div>
+                        </div>
+                      </div>
+                      {onChallengeBestiaryBoss && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onClose();
+                            onChallengeBestiaryBoss(idx);
+                          }}
+                          className="w-full py-1.5 rounded-xl bg-rose-600/40 hover:bg-rose-600 border border-rose-400/40 text-xs font-bold text-white transition-colors"
+                        >
+                          ⚔️ Вызвать на 3D-Дуэль
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
           )}

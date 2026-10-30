@@ -38,6 +38,16 @@ import {
   advanceBoxBreathingTimer,
   calculateNavigatorCoherence,
   computeTransitRewardConversion,
+  DIFFICULTIES,
+  BIOME_ORDER,
+  ACHIEVEMENTS_CATALOG,
+  findShortestPath,
+  destroyAdjacentWalls,
+  upgradeHeroTransaction,
+  calculateTalentBonuses,
+  mergeMultiverseProfiles,
+  resolveGitConflictAdditive,
+  LEGENDARY_GITHUB_HEROES,
 } from './rules';
 
 test('calculateHeroStats returns role-appropriate RPG stats with deterministic bonuses and glyph synergy', () => {
@@ -269,4 +279,75 @@ test('Stargate 4D × Obsidian Liminal Nodes, 4D Tesseract, Gravity Funnel, Celes
   assert.equal(rewards.bonusMana >= 3, true);
   assert.equal(rewards.bonusQuantumCharges, 2);
 });
+
+test('All 6 Difficulty Scales, 8 Biomes, 24 Skins, 8 Achievements, BFS Pathfinding, Wall-Breaker Bomb, Hero Upgrades, and GitHub Omni-Merge work additively', () => {
+  assert.equal(Object.keys(DIFFICULTIES).length, 6);
+  assert.equal(DIFFICULTIES.BLITZ.rows, 7);
+  assert.equal(DIFFICULTIES.ULTRA.rows, 21);
+  assert.equal(BIOME_ORDER.length, 8);
+  assert.equal(SHOP_SKINS_CATALOG.length, 24);
+  assert.equal(ACHIEVEMENTS_CATALOG.length, 8);
+  assert.equal(DIMENSIONAL_MODE_META['first-person'].badge, '1-е Лицо');
+
+  const maze = generateMaze(9, 9, 4, 2, 1, () => 0.4);
+  const path = findShortestPath(maze, { r: 1, c: 1 }, maze.exit, true);
+  assert.equal(path.length >= 1, true);
+
+  // Force an inner wall next to (1,1) and test Wall-Breaker Bomb
+  maze.grid[1][2] = 'WALL';
+  const bombRes = destroyAdjacentWalls(maze, { r: 1, c: 1 });
+  assert.equal(bombRes.destroyedCount >= 1, true);
+  assert.equal(bombRes.nextMaze.grid[1][2], 'PATH');
+
+  // Hero Upgrade Transaction
+  const upg = upgradeHeroTransaction(INITIAL_HERO_ROSTER[0], 100, 25);
+  assert.equal(upg.success, true);
+  assert.equal(upg.nextCoins, 75);
+  assert.equal(upg.upgradedHero.hp, INITIAL_HERO_ROSTER[0].hp + 15);
+
+  // Multiverse Talents & Additive GitHub Merge
+  const talents = calculateTalentBonuses({
+    'talent-vitality-core': 2,
+    'talent-plasma-blade': 1,
+  });
+  assert.equal(talents.bonusHp, 30);
+  assert.equal(talents.bonusAtk, 5);
+
+  const merged = mergeMultiverseProfiles(
+    {
+      version: 'v6.0',
+      coins: 120,
+      level: 3,
+      unlockedSkins: ['😀', '🤠'],
+      claimedAchievements: ['ach-first-star'],
+      talentRanks: { 'talent-vitality-core': 2 },
+      heroes: [INITIAL_HERO_ROSTER[0]],
+    },
+    {
+      coins: 80,
+      level: 5,
+      unlockedSkins: ['🤠', '🐉'],
+      claimedAchievements: ['ach-boss-slayer'],
+      talentRanks: { 'talent-vitality-core': 1, 'talent-plasma-blade': 3 },
+      heroes: [LEGENDARY_GITHUB_HEROES[0]],
+    }
+  );
+  assert.equal(merged.coins, 200);
+  assert.equal(merged.level, 5);
+  assert.equal(merged.unlockedSkins.length, 3);
+  assert.equal(merged.heroes.length, 2);
+
+  const sampleConflict = [
+    '<<<<<<< HEAD',
+    'export const EXTRA_A = 1;',
+    '=======',
+    'export const EXTRA_B = 2;',
+    '>>>>>>> main',
+  ].join('\n');
+  const resolved = resolveGitConflictAdditive(sampleConflict);
+  assert.equal(resolved.conflictsResolved, 1);
+  assert.equal(resolved.resolvedCode.includes('EXTRA_A'), true);
+  assert.equal(resolved.resolvedCode.includes('EXTRA_B'), true);
+});
+
 
