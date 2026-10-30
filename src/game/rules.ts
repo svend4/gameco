@@ -1946,3 +1946,575 @@ export const INITIAL_HERO_ROSTER: HeroAvatar[] = [
     mazesCleared: 3,
   },
 ];
+
+// ============================================================================
+// ITERATION 6: STARGATE 4D × OBSIDIAN × SURREAL CIRCUS INTER-LOCATION TRANSIT
+// ============================================================================
+
+export interface StargateThemePreset {
+  index: number;
+  name: string;
+  enName: string;
+  stargateTitle: string;
+  linkedBiome: BiomeKey;
+  bgGradient: [string, string, string];
+  bgSolid: string;
+  primaryAccent: string;
+  secondaryAccent: string;
+  surfaceColor: string;
+  starColor: string;
+  bubbleColors: string[];
+  description: string;
+}
+
+export const SURREAL_THEMES: StargateThemePreset[] = [
+  {
+    index: 0,
+    name: 'Обсидиановый Горизонт',
+    enName: 'Obsidian Stargate',
+    stargateTitle: 'Врата I · Осевой Астрал',
+    linkedBiome: 'CYBER_NEON',
+    bgGradient: ['#07060E', '#110D22', '#1F1037'],
+    bgSolid: '#0D0A1A',
+    primaryAccent: '#FF2A85',
+    secondaryAccent: '#00F0FF',
+    surfaceColor: 'rgba(91, 39, 162, 0.22)',
+    starColor: '#FFD700',
+    bubbleColors: ['#FF2A85', '#00F0FF', '#9D4EDD', '#3A86C8'],
+    description:
+      'Вулканическое обсидиановое стекло, шевроны Звёздных Врат и фиолетовые токи 4-го измерения.',
+  },
+  {
+    index: 1,
+    name: 'Гелио-Манеж Хроноса',
+    enName: 'Chronos Event Horizon',
+    stargateTitle: 'Врата II · Сдвиг Времён',
+    linkedBiome: 'SOLAR_SUPERNOVA',
+    bgGradient: ['#160514', '#28081B', '#421019'],
+    bgSolid: '#28081B',
+    primaryAccent: '#FF6B00',
+    secondaryAccent: '#39FF14',
+    surfaceColor: 'rgba(126, 25, 42, 0.24)',
+    starColor: '#FFA500',
+    bubbleColors: ['#FF6B00', '#39FF14', '#FFD700', '#FF007F'],
+    description:
+      'Плазменное кольцо червоточины, где прошлое и будущее текут по параллельным струнам.',
+  },
+  {
+    index: 2,
+    name: 'Герметический Изумруд',
+    enName: 'Emerald Tabula Smaragdina',
+    stargateTitle: 'Врата III · Изумрудная Скрижаль',
+    linkedBiome: 'MEDIEVAL_CITADEL',
+    bgGradient: ['#041812', '#082919', '#0F3B23'],
+    bgSolid: '#082919',
+    primaryAccent: '#00FFCC',
+    secondaryAccent: '#FFE347',
+    surfaceColor: 'rgba(26, 92, 58, 0.24)',
+    starColor: '#FFFF99',
+    bubbleColors: ['#00FFCC', '#FFE347', '#48CAE4', '#80FFDB'],
+    description:
+      'Средневековая алхимия «Что наверху, то и внизу» — мост между внешним космосом и душой.',
+  },
+  {
+    index: 3,
+    name: 'Астральный Навигатор',
+    enName: 'Astral Indigo Tesseract',
+    stargateTitle: 'Врата IV · Ось Тессеракта',
+    linkedBiome: 'SUNKEN_ATLANTIS',
+    bgGradient: ['#070B1C', '#0D152E', '#172542'],
+    bgSolid: '#0D152E',
+    primaryAccent: '#8B5CF6',
+    secondaryAccent: '#00BFFF',
+    surfaceColor: 'rgba(44, 64, 117, 0.25)',
+    starColor: '#E2E2E2',
+    bubbleColors: ['#8B5CF6', '#00BFFF', '#B5179E', '#4CC9F0'],
+    description:
+      'Серебряный шнур сновидения, соединяющий скафандр Космонавта с многомерным гиперкубом.',
+  },
+];
+
+export const PENTATONIC_NOTES: readonly number[] = [
+  261.63, // C4
+  293.66, // D4
+  329.63, // E4
+  392.0, // G4
+  440.0, // A4
+  523.25, // C5
+  587.33, // D5
+  659.25, // E5
+  783.99, // G5
+  880.0, // A5
+];
+
+export const NOTE_LABELS: readonly string[] = [
+  'C4',
+  'D4',
+  'E4',
+  'G4',
+  'A4',
+  'C5',
+  'D5',
+  'E5',
+  'G5',
+  'A5',
+];
+
+export const ALCHEMICAL_SIGILS: readonly string[] = [
+  '☉',
+  '☽',
+  '△',
+  '▽',
+  '✧',
+  '⬡',
+  '◈',
+  '∞',
+];
+
+// 16 vertices of a 4D Tesseract (Hypercube) with coordinates in {-1, +1}^4
+export const TESSERACT_VERTICES: ReadonlyArray<[number, number, number, number]> = Array.from(
+  { length: 16 },
+  (_, i) => [
+    i & 1 ? 1 : -1,
+    i & 2 ? 1 : -1,
+    i & 4 ? 1 : -1,
+    i & 8 ? 1 : -1,
+  ]
+);
+
+// 32 edges of a 4D Tesseract where Hamming distance between vertex indices is 1
+export const TESSERACT_EDGES: ReadonlyArray<[number, number]> = (() => {
+  const edges: Array<[number, number]> = [];
+  for (let i = 0; i < 16; i++) {
+    for (let j = i + 1; j < 16; j++) {
+      const diff = i ^ j;
+      if (diff && (diff & (diff - 1)) === 0) {
+        edges.push([i, j]);
+      }
+    }
+  }
+  return edges;
+})();
+
+export function getStargateThemePreset(index: number): StargateThemePreset {
+  const safeIdx =
+    ((index % SURREAL_THEMES.length) + SURREAL_THEMES.length) % SURREAL_THEMES.length;
+  return SURREAL_THEMES[safeIdx];
+}
+
+export function getPentatonicFrequency(noteIndex: number): number {
+  const clamped = Math.max(0, Math.min(PENTATONIC_NOTES.length - 1, Math.floor(noteIndex)));
+  return PENTATONIC_NOTES[clamped];
+}
+
+export interface LiminalNode {
+  id: string;
+  code: string;
+  title: string;
+  archetype: string;
+  x: number;
+  y: number;
+  zDepth: number;
+  vesselCapacity: string;
+  externalAstralManifestation: string;
+  internalMentalManifestation: string;
+  liminalBridge: string;
+  medievalParallel: string;
+  scifiTechParallel: string;
+  recommendedGate: 'funnel' | 'carousel' | 'bubbles';
+  targetBiome: BiomeKey;
+  connectedTo: string[];
+}
+
+export const LIMINAL_NODES: LiminalNode[] = [
+  {
+    id: 'node-1',
+    code: 'УЗЕЛ I · CHVR-01',
+    title: 'Обсидиановый Вестибюль Сновидца',
+    archetype: 'Исходная Ёмкость (Точка Входа в Транзит)',
+    x: 0.15,
+    y: 0.5,
+    zDepth: 0.2,
+    vesselCapacity: 'Ёмкость Покоя · 108 Гц',
+    externalAstralManifestation:
+      'Чёрная зеркальная дорога из вулканического обсидиана, парящая над бездной, где слева и справа параллельно текут ленты прошлых и будущих событий.',
+    internalMentalManifestation:
+      'Первичное наблюдение за дыханием (4-4-4-4) внутри гермошлема Космонавта; отключение внешнего информационного шума.',
+    liminalBridge:
+      'Туннель «Ловца Сфер» — гравитационная воронка, собирающая разрозненные кванты внимания в единый луч.',
+    medievalParallel:
+      'Nigredo (Алхимическое чернение) и вход во «Дворец Памяти» Раймунда Луллия через врата безмолвия.',
+    scifiTechParallel:
+      'Инициализация Stargate-шевронов и квантовая декапсуляция сознания оператора перед гиперпрыжком.',
+    recommendedGate: 'funnel',
+    targetBiome: 'CYBER_NEON',
+    connectedTo: ['node-2', 'node-3'],
+  },
+  {
+    id: 'node-2',
+    code: 'УЗЕЛ II · CHVR-02',
+    title: 'Хроно-Коридор Параллельных Времён',
+    archetype: 'Осевое 4-е Измерение (Синхронность Пространства-Времени)',
+    x: 0.36,
+    y: 0.24,
+    zDepth: 0.55,
+    vesselCapacity: 'Ёмкость Хроноса · 261.6 Гц (C4)',
+    externalAstralManifestation:
+      'Искривлённый мост Звёздных Врат, где причины и следствия видны одновременно как геометрия: созвездия вспыхивают до того, как к ним прикасается рука.',
+    internalMentalManifestation:
+      'Распознавание искажения «Катастрофизация» (страх будущего) и возврат ума Космонавта в точку осевого настоящего.',
+    liminalBridge:
+      'Вращающаяся 3D-призма «Карусели Созвездий» — переход из линейного времени в объёмное сферическое восприятие.',
+    medievalParallel:
+      'Армиллярная сфера и небесные колёса Иезекииля / герметический космос Роберта Фладда.',
+    scifiTechParallel:
+      'Четырёхмерный тессеракт (гиперкуб) и релятивистский коридор кротовой норы Эйнштейна — Розена.',
+    recommendedGate: 'carousel',
+    targetBiome: 'SOLAR_SUPERNOVA',
+    connectedTo: ['node-1', 'node-4', 'node-5'],
+  },
+  {
+    id: 'node-3',
+    code: 'УЗЕЛ III · CHVR-03',
+    title: 'Зеркальный Лабиринт Искажений',
+    archetype: 'Испытание Ментальной Оболочки',
+    x: 0.36,
+    y: 0.76,
+    zDepth: 0.4,
+    vesselCapacity: 'Ёмкость Очищения · 329.6 Гц (E4)',
+    externalAstralManifestation:
+      'Поле преломляющих обсидиановых кристаллов и ложных гравитационных течений, пытающихся увести корабль-аватар с главной оси.',
+    internalMentalManifestation:
+      'Фиксация тревожных автоматических мыслей и их алхимическая переплавка в рациональный манёвр Навигатора.',
+    liminalBridge:
+      'Шлюз «Эфирных Пузырей» — разделение тяжёлой монолитной преграды на лёгкие, управляемые и прозрачные сферы.',
+    medievalParallel:
+      'Albedo (Омывание / Белая стадия алхимии) — очищение философского камня от шлаков иллюзий.',
+    scifiTechParallel:
+      'Адаптивная оптика телескопа и фильтрация когнитивных помех нейроинтерфейса.',
+    recommendedGate: 'bubbles',
+    targetBiome: 'MEDIEVAL_CITADEL',
+    connectedTo: ['node-1', 'node-4', 'node-6'],
+  },
+  {
+    id: 'node-4',
+    code: 'УЗЕЛ IV · AXIS-00',
+    title: 'Осевой Астральный Шпиль (Axis Mundi)',
+    archetype: 'Центральный Перекрёсток Междумирья',
+    x: 0.56,
+    y: 0.5,
+    zDepth: 0.9,
+    vesselCapacity: 'Ёмкость Абсолютного Резонанса · 440 Гц (A4)',
+    externalAstralManifestation:
+      'Вертикальная неоново-обсидиановая ось мира, вокруг которой вращаются все локации-комнаты. Здесь внешнее 3D-пространство выворачивается наизнанку, переходя в 4D.',
+    internalMentalManifestation:
+      'Точка нулевой тревоги внутри Космонавта: полное совпадение ритма сердца, дыхания (4-4-4-4) и ясного рационального сознания.',
+    liminalBridge:
+      'Прямой квантовый туннель Звёздных Врат (Stargate Event Horizon), соединяющий внутренний мир пилота с внешней космологией.',
+    medievalParallel:
+      'Изумрудная Скрижаль Гермеса Трисмегиста: «То, что внизу, аналогично тому, что вверху» и Мировое Древо.',
+    scifiTechParallel:
+      'Глобальный граф знаний Obsidian (Центральный Хаб-Узел с максимальной центральностью связей).',
+    recommendedGate: 'carousel',
+    targetBiome: 'CYBER_NEON',
+    connectedTo: ['node-2', 'node-3', 'node-5', 'node-6', 'node-7'],
+  },
+  {
+    id: 'node-5',
+    code: 'УЗЕЛ V · CHVR-05',
+    title: 'Алхимический Реактор Эфирных Сосудов',
+    archetype: 'Трансмутация Состояний и Ёмкостей',
+    x: 0.75,
+    y: 0.25,
+    zDepth: 0.6,
+    vesselCapacity: 'Ёмкость Синтеза · 523.2 Гц (C5)',
+    externalAstralManifestation:
+      'Восходящий поток радужных плазменных сфер из золотого сопла в невесомости, где малые капли опыта сливаются в мега-сферы мудрости.',
+    internalMentalManifestation:
+      'Интеграция инсайтов Навигатора: перевод накопленного напряжения в созидательный ресурс и ману.',
+    liminalBridge:
+      'Мембрана поверхностного натяжения между двумя соседними лабиринтами: переход из жидкого эмоционального состояния в кристаллическое.',
+    medievalParallel:
+      'Vas Hermeticum (Герметический сосуд) и циркуляция квинтэссенции (Пятого элемента).',
+    scifiTechParallel:
+      'Магнитное удержание плазмы в термоядерном токамаке и слияние кластеров данных в векторном пространстве.',
+    recommendedGate: 'bubbles',
+    targetBiome: 'SUNKEN_ATLANTIS',
+    connectedTo: ['node-2', 'node-4', 'node-7'],
+  },
+  {
+    id: 'node-6',
+    code: 'УЗЕЛ VI · CHVR-06',
+    title: 'Архив Живых Связей (Псевдо-Обсидиан)',
+    archetype: 'Нейронная Карта Локаций и Воспоминаний',
+    x: 0.75,
+    y: 0.75,
+    zDepth: 0.5,
+    vesselCapacity: 'Ёмкость Памяти · 659.2 Гц (E5)',
+    externalAstralManifestation:
+      'Светящаяся паутина гиперссылок в тёмном обсидиановом космосе: каждая пройденная дорога оставляет золотую нить в графе.',
+    internalMentalManifestation:
+      'Долгосрочная память Журнала Переходов: паттерны решений становятся прозрачной картой навигации по секторам.',
+    liminalBridge:
+      'Синаптический зазор между комнатами — мгновенный телепорт по смысловому сходству (ассоциативный прыжок).',
+    medievalParallel:
+      'Нить Ариадны в критском лабиринте и средневековые бестиарии/кодексы с перекрёстными глоссами.',
+    scifiTechParallel:
+      'Графовая база знаний Obsidian (Second Brain) и многомерные эмбеддинги смыслов.',
+    recommendedGate: 'funnel',
+    targetBiome: 'MEDIEVAL_CITADEL',
+    connectedTo: ['node-3', 'node-4', 'node-7'],
+  },
+  {
+    id: 'node-7',
+    code: 'УЗЕЛ VII · CHVR-07',
+    title: 'Горизонт Сингулярности Навигатора',
+    archetype: 'Высшая Ёмкость Пробуждённого Сновидения',
+    x: 0.9,
+    y: 0.5,
+    zDepth: 1.0,
+    vesselCapacity: 'Ёмкость Бесконечности · 880 Гц (A5)',
+    externalAstralManifestation:
+      'Открытые Звёздные Врата 7-го шеврона: сияющий портал, где дорога, путник и сам космос осознаются как единая музыкальная симфония.',
+    internalMentalManifestation:
+      'Этап 4/4 «Мастер-Навигатор»: внутренняя тишина и ясность, при которой любая турбулентность мгновенно преобразуется в гармонию.',
+    liminalBridge:
+      'Выход за пределы переходов: способность свободно перемещаться между любыми ёмкостями и измерениями без потери осознанности.',
+    medievalParallel:
+      'Rubedo (Великое Делание в красном/золотом) и Coincidentia Oppositorum (совпадение противоположностей Николая Кузанского).',
+    scifiTechParallel:
+      'Квантовая когерентность сознания 4-го измерения и полная синхронизация Аватара с ядром симуляции.',
+    recommendedGate: 'carousel',
+    targetBiome: 'SOLAR_SUPERNOVA',
+    connectedTo: ['node-4', 'node-5', 'node-6'],
+  },
+];
+
+export interface HarmonyRecord {
+  id: string;
+  attractionName: 'Ловец Сфер' | 'Карусель Звезд' | 'Сферы Эфира' | string;
+  score: number;
+  dateString: string;
+  noteChainLength: number;
+  themePalette: string;
+}
+
+export function getBestScoreForAttraction(
+  records: HarmonyRecord[],
+  attractionName: string,
+  liveScore = 0
+): number {
+  const maxStored = records
+    .filter((r) => r.attractionName === attractionName)
+    .reduce((max, r) => (r.score > max ? r.score : max), 0);
+  return Math.max(maxStored, liveScore);
+}
+
+export function calculateFunnelHit(
+  currentScore: number,
+  currentStreak: number,
+  maxStreak: number,
+  isHit: boolean
+): { score: number; streak: number; maxStreak: number } {
+  if (!isHit) {
+    return {
+      score: currentScore,
+      streak: 0,
+      maxStreak,
+    };
+  }
+  const nextScore = currentScore + 10 + currentStreak;
+  const nextStreak = currentStreak + 1;
+  return {
+    score: nextScore,
+    streak: nextStreak,
+    maxStreak: Math.max(maxStreak, nextStreak),
+  };
+}
+
+export function calculateCarouselFusionScore(
+  currentScore: number,
+  currentScaleCount: number,
+  matchedCount: number
+): { score: number; scaleCount: number } {
+  if (matchedCount < 3) {
+    return { score: currentScore, scaleCount: currentScaleCount };
+  }
+  return {
+    score: currentScore + matchedCount * 25,
+    scaleCount: currentScaleCount + 1,
+  };
+}
+
+export function project3DPoint(
+  x: number,
+  y: number,
+  z: number,
+  centerX: number,
+  centerY: number,
+  focalLength: number,
+  cameraDistance = 0
+): { px: number; py: number; scale: number } {
+  const denom = Math.max(10, focalLength + cameraDistance + z);
+  const scale = focalLength / denom;
+  return {
+    px: centerX + x * scale,
+    py: centerY + y * scale,
+    scale,
+  };
+}
+
+export function rotate3DPoint(
+  x: number,
+  y: number,
+  z: number,
+  angleX: number,
+  angleY: number
+): { rx: number; ry: number; rz: number } {
+  const cosY = Math.cos(angleY);
+  const sinY = Math.sin(angleY);
+  const cosX = Math.cos(angleX);
+  const sinX = Math.sin(angleX);
+
+  const rx1 = x * cosY - z * sinY;
+  const rz1 = x * sinY + z * cosY;
+
+  const ry2 = y * cosX - rz1 * sinX;
+  const rz2 = y * sinX + rz1 * cosX;
+
+  return { rx: rx1, ry: ry2, rz: rz2 };
+}
+
+export function mergeBubbleRadii(r1: number, r2: number): number {
+  return Math.min(130, r1 + r2 * 0.5);
+}
+
+export interface BreathStepState {
+  breathPhase: 0 | 1 | 2 | 3;
+  phaseTimer: number;
+  cycleText: string;
+  breathColor: string;
+}
+
+export function getBreathPhaseInfo(phase: 0 | 1 | 2 | 3): {
+  cycleText: string;
+  breathColor: string;
+} {
+  switch (phase) {
+    case 0:
+      return { cycleText: 'Вдох...', breathColor: '#4DB6AC' };
+    case 1:
+      return { cycleText: 'Задержка...', breathColor: '#90A4AE' };
+    case 2:
+      return { cycleText: 'Выдох...', breathColor: '#64B5F6' };
+    default:
+      return { cycleText: 'Задержка...', breathColor: '#9575CD' };
+  }
+}
+
+export function advanceBoxBreathingTimer(
+  breathPhase: 0 | 1 | 2 | 3,
+  phaseTimer: number
+): BreathStepState {
+  if (phaseTimer > 1) {
+    const nextTimer = phaseTimer - 1;
+    return {
+      breathPhase,
+      phaseTimer: nextTimer,
+      ...getBreathPhaseInfo(breathPhase),
+    };
+  }
+  const nextPhase = ((breathPhase + 1) % 4) as 0 | 1 | 2 | 3;
+  return {
+    breathPhase: nextPhase,
+    phaseTimer: 4,
+    ...getBreathPhaseInfo(nextPhase),
+  };
+}
+
+export interface NavigatorSyncTelemetry {
+  astralResonance: number; // 0..100
+  mentalStability: number; // 0..100
+  coherenceIndex: number; // 0..100
+  vesselStatus: string;
+  dimensionalRank: string;
+}
+
+export function calculateNavigatorCoherence(
+  records: HarmonyRecord[],
+  totalBreathingSec: number,
+  mazesClearedCount: number = 0
+): NavigatorSyncTelemetry {
+  const totalHarmony = records.reduce((sum, r) => sum + r.score, 0);
+  const astralResonance = Math.min(
+    100,
+    Math.round(30 + totalHarmony / 10 + mazesClearedCount * 4)
+  );
+
+  const mentalStability = Math.min(
+    100,
+    Math.round(35 + totalBreathingSec / 4 + records.length * 6)
+  );
+
+  const coherenceIndex = Math.min(
+    100,
+    Math.round(astralResonance * 0.5 + mentalStability * 0.5)
+  );
+
+  let vesselStatus = 'Первичная калибровка шлюза';
+  let dimensionalRank = 'Странник Порога (3D → 4D)';
+
+  if (coherenceIndex >= 85) {
+    vesselStatus = 'Сверхпроводимость Звёздных Врат (Обсидиановый Резонанс)';
+    dimensionalRank = 'Архитектор Осевого Астрала (4D-Навигатор)';
+  } else if (coherenceIndex >= 65) {
+    vesselStatus = 'Устойчивый мост между Ёмкостями сознания';
+    dimensionalRank = 'Навигатор Сновидческих Узлов';
+  } else if (coherenceIndex >= 45) {
+    vesselStatus = 'Ламинарный поток перехода между локациями';
+    dimensionalRank = 'Исследователь Лиминальных Лабиринтов';
+  }
+
+  return {
+    astralResonance,
+    mentalStability,
+    coherenceIndex,
+    vesselStatus,
+    dimensionalRank,
+  };
+}
+
+export interface TransitRewardPackage {
+  bonusGold: number;
+  bonusMana: number;
+  bonusQuantumCharges: number;
+  bonusHpHeal: number;
+}
+
+export function computeTransitRewardConversion(
+  sessionHarmonyScore: number,
+  sessionBreathingSec: number,
+  coherenceIndex: number
+): TransitRewardPackage {
+  const bonusGold = Math.min(
+    120,
+    12 + Math.floor(sessionHarmonyScore / 5) + Math.floor(coherenceIndex / 10) * 2
+  );
+  const bonusMana = Math.min(
+    5,
+    1 + (sessionHarmonyScore >= 30 ? 1 : 0) + (sessionBreathingSec >= 16 ? 2 : 0)
+  );
+  const bonusQuantumCharges =
+    1 + (sessionHarmonyScore >= 50 || coherenceIndex >= 65 ? 1 : 0);
+  const bonusHpHeal = Math.min(
+    60,
+    15 + Math.floor(sessionBreathingSec / 4) * 5 + Math.floor(sessionHarmonyScore / 15) * 4
+  );
+  return {
+    bonusGold,
+    bonusMana,
+    bonusQuantumCharges,
+    bonusHpHeal,
+  };
+}
+

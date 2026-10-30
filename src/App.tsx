@@ -40,8 +40,11 @@ import {
   SectorWeatherKey,
   ShopSkin,
   stepEnemies,
+  SURREAL_THEMES,
   TAROT_CARDS_CATALOG,
   TarotCardId,
+  TransitRewardPackage,
+  HarmonyRecord,
 } from './game/rules';
 import { soundFX } from './game/sound';
 import { EmojiAvatarCard } from './components/EmojiAvatarCard';
@@ -50,6 +53,7 @@ import { ArenaBattleModal } from './components/ArenaBattleModal';
 import { SynergyCodexModal } from './components/SynergyCodexModal';
 import { Maze3DViewport, VfxBurstPayload } from './components/Maze3DViewport';
 import { CartographerMinimap } from './components/CartographerMinimap';
+import { LiminalStargateTransitModal } from './components/LiminalStargateTransitModal';
 
 type ShellState = 'title' | 'playing' | 'paused' | 'gameover';
 
@@ -193,6 +197,26 @@ export default function App() {
   const [dockCollapsed, setDockCollapsed] = useState<boolean>(false);
   const [vfxBurst, setVfxBurst] = useState<VfxBurstPayload | null>(null);
   const [merchantOpen, setMerchantOpen] = useState<boolean>(false);
+  const [transitOpen, setTransitOpen] = useState<boolean>(false);
+  const [stargateThemeIdx, setStargateThemeIdx] = useState<number>(0);
+  const [harmonyRecords, setHarmonyRecords] = useState<HarmonyRecord[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved && Array.isArray(JSON.parse(saved).harmonyRecords)) {
+        return JSON.parse(saved).harmonyRecords;
+      }
+    } catch {}
+    return [];
+  });
+  const [totalBreathingSec, setTotalBreathingSec] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved && typeof JSON.parse(saved).totalBreathingSec === 'number') {
+        return JSON.parse(saved).totalBreathingSec;
+      }
+    } catch {}
+    return 16;
+  });
   const [potionBelt, setPotionBelt] = useState<Record<AlchemicalPotionId, number>>({
     'elixir-phoenix': 1,
     'ether-stargazer': 1,
@@ -286,6 +310,8 @@ export default function App() {
           bestiaryKills,
           activeTarotId,
           activeGuildId,
+          harmonyRecords,
+          totalBreathingSec,
         })
       );
     } catch {}
@@ -300,6 +326,8 @@ export default function App() {
     bestiaryKills,
     activeTarotId,
     activeGuildId,
+    harmonyRecords,
+    totalBreathingSec,
   ]);
 
   useEffect(() => {
@@ -1029,7 +1057,8 @@ export default function App() {
       activeArenaEnemy !== null ||
       studioOpen ||
       codexOpen ||
-      merchantOpen
+      merchantOpen ||
+      transitOpen
     ) {
       return;
     }
@@ -1093,6 +1122,10 @@ export default function App() {
       }
 
       if (e.key === 'Escape') {
+        if (transitOpen) {
+          setTransitOpen(false);
+          return;
+        }
         if (merchantOpen) {
           setMerchantOpen(false);
           return;
@@ -1158,6 +1191,12 @@ export default function App() {
       if (e.key.toLowerCase() === 'f' && shellState === 'playing' && !studioOpen && !codexOpen && !activeArenaEnemy) {
         e.preventDefault();
         handleCastPetrifyScroll();
+        return;
+      }
+
+      if (e.key.toLowerCase() === 'g' && !studioOpen && !codexOpen && !activeArenaEnemy) {
+        e.preventDefault();
+        setTransitOpen((prev) => !prev);
         return;
       }
 
@@ -1678,6 +1717,15 @@ export default function App() {
 
                 <button
                   type="button"
+                  data-testid="open-stargate-transit-title"
+                  onClick={() => setTransitOpen(true)}
+                  className="px-4 py-3.5 rounded-2xl bg-indigo-600/35 hover:bg-indigo-600/55 border border-cyan-400/45 text-cyan-100 font-extrabold text-sm transition-colors whitespace-nowrap"
+                >
+                  🌌 Stargate 4D-Транзит
+                </button>
+
+                <button
+                  type="button"
                   onClick={() => setCodexOpen(true)}
                   className="px-4 py-3.5 rounded-2xl bg-[#1D1636] hover:bg-[#281E4B] border border-purple-300/20 text-purple-200 font-semibold text-sm transition-colors whitespace-nowrap"
                 >
@@ -1927,6 +1975,14 @@ export default function App() {
 
               {/* Top-Right Compact Controls */}
               <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  data-testid="open-stargate-transit-hud"
+                  onClick={() => setTransitOpen(true)}
+                  className="px-2.5 py-1.5 rounded-xl bg-cyan-500/25 hover:bg-cyan-500/40 border border-cyan-400/45 text-xs font-bold text-cyan-200 whitespace-nowrap"
+                >
+                  🌌 Stargate 4D [G]
+                </button>
                 <button
                   type="button"
                   onClick={() => {
@@ -2379,14 +2435,24 @@ export default function App() {
             )}
 
             <div className="space-y-2 pt-1">
+              {runSummary.victory && (
+                <button
+                  type="button"
+                  data-testid="open-stargate-transit-victory"
+                  onClick={() => setTransitOpen(true)}
+                  className="w-full py-3.5 rounded-xl bg-gradient-to-r from-cyan-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 text-white font-extrabold text-sm shadow-lg transition-all"
+                >
+                  🌌 Межлокационный Переход Stargate 4D × Obsidian (Шлюз в Сектор #{level}) →
+                </button>
+              )}
               <button
                 type="button"
                 data-start="true"
                 onClick={() => startMazeRun(level, difficulty)}
-                className="w-full py-3.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-extrabold text-sm shadow-lg transition-colors"
+                className="w-full py-3 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-extrabold text-sm shadow-lg transition-colors"
               >
                 {runSummary.victory
-                  ? `🚀 Следующий 3D-Биом (Сектор #${level}) →`
+                  ? `🚀 Быстрый Прыжок в 3D-Биом (Сектор #${level}) →`
                   : '🔄 Попробовать Снова'}
               </button>
               <button
@@ -2623,6 +2689,51 @@ export default function App() {
         royalRank={royalRank}
         bountiesCompletedCount={bountiesCompletedCount}
         bestiaryKills={bestiaryKills}
+      />
+
+      <LiminalStargateTransitModal
+        isOpen={transitOpen}
+        currentLevel={level}
+        currentBiome={biomeKey}
+        records={harmonyRecords}
+        totalBreathingSec={totalBreathingSec}
+        mazesClearedCount={activeHero.mazesCleared}
+        themeIndex={stargateThemeIdx}
+        onSelectThemeIndex={setStargateThemeIdx}
+        onSaveHarmonyRecord={(attractionName, score, chainLen) => {
+          const preset = SURREAL_THEMES[stargateThemeIdx % SURREAL_THEMES.length];
+          const rec: HarmonyRecord = {
+            id: `harm-${Date.now()}-${Math.random()}`,
+            attractionName,
+            score,
+            dateString: new Date().toLocaleTimeString('ru-RU', {
+              hour: '2-digit',
+              minute: '2-digit',
+            }),
+            noteChainLength: chainLen,
+            themePalette: preset.name,
+          };
+          setHarmonyRecords((prev) => [rec, ...prev.slice(0, 19)]);
+        }}
+        onAddBreathingSeconds={(sec) => {
+          setTotalBreathingSec((s) => s + sec);
+        }}
+        onCompleteTransit={(chosenBiome: BiomeKey, rewards: TransitRewardPackage) => {
+          setTransitOpen(false);
+          setBiomeKey(chosenBiome);
+          startMazeRun(level, difficulty);
+          setCoins((c) => c + rewards.bonusGold);
+          setCoinsEarnedRun((c) => c + rewards.bonusGold);
+          setStarEnergy((e) => Math.min(5, e + rewards.bonusMana));
+          setQuantumCharges((q) => q + rewards.bonusQuantumCharges);
+          setPlayerHp((hp) =>
+            Math.min(activeHero.hp + activeGuild.bonusHp + 35, hp + rewards.bonusHpHeal)
+          );
+          setActionLogMessage(
+            `🌌 Stargate 4D-Транзит завершён! Вход в ${BIOMES[chosenBiome].titleRu}: +${rewards.bonusGold} 🪙, +${rewards.bonusMana} ⚡, +${rewards.bonusQuantumCharges} [Q], +${rewards.bonusHpHeal} ОЗ!`
+          );
+        }}
+        onClose={() => setTransitOpen(false)}
       />
     </div>
   );

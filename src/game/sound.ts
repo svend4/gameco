@@ -141,6 +141,57 @@ class SoundController {
       osc.stop(now + i * 0.07 + 0.22);
     });
   }
+
+  public playPentatonicTone(
+    frequency: number,
+    durationMs: number = 350,
+    type: OscillatorType = 'sine'
+  ) {
+    const ctx = this.getContext();
+    if (!ctx) return;
+    try {
+      const now = ctx.currentTime;
+      const durationSec = Math.max(0.05, durationMs / 1000);
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      osc.type = type;
+      osc.frequency.setValueAtTime(frequency, now);
+
+      const attackEnd = now + durationSec * 0.1;
+      const decayStart = now + durationSec * 0.65;
+      const end = now + durationSec;
+
+      gain.gain.setValueAtTime(0.0001, now);
+      gain.gain.linearRampToValueAtTime(0.16, attackEnd);
+      gain.gain.setValueAtTime(0.16, decayStart);
+      gain.gain.exponentialRampToValueAtTime(0.0001, end);
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(now);
+      osc.stop(end + 0.02);
+    } catch {}
+  }
+
+  public playPentatonicNote(index: number, durationMs: number = 350) {
+    const notes = [261.63, 293.66, 329.63, 392.0, 440.0, 523.25, 587.33, 659.25, 783.99, 880.0];
+    const safeIdx = Math.max(0, Math.min(notes.length - 1, Math.floor(index)));
+    this.playPentatonicTone(notes[safeIdx], durationMs, 'sine');
+  }
+
+  public playPentatonicArpeggio(baseIndex: number) {
+    this.playPentatonicNote(baseIndex, 180);
+    setTimeout(() => this.playPentatonicNote((baseIndex + 2) % 10, 180), 95);
+    setTimeout(() => this.playPentatonicNote((baseIndex + 4) % 10, 320), 190);
+  }
+
+  public playStargateKawoosh() {
+    this.playPentatonicTone(440.0, 140, 'sine');
+    setTimeout(() => this.playPentatonicTone(523.25, 240, 'triangle'), 90);
+    setTimeout(() => this.playPentatonicTone(659.25, 300, 'sine'), 180);
+  }
 }
 
 export const soundFX = new SoundController();
+

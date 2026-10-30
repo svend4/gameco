@@ -28,6 +28,16 @@ import {
   ALCHEMICAL_POTIONS_CATALOG,
   computeTargetCompass,
   computeRunMasteryGrade,
+  SURREAL_THEMES,
+  LIMINAL_NODES,
+  TESSERACT_VERTICES,
+  TESSERACT_EDGES,
+  calculateFunnelHit,
+  calculateCarouselFusionScore,
+  mergeBubbleRadii,
+  advanceBoxBreathingTimer,
+  calculateNavigatorCoherence,
+  computeTransitRewardConversion,
 } from './rules';
 
 test('calculateHeroStats returns role-appropriate RPG stats with deterministic bonuses and glyph synergy', () => {
@@ -216,3 +226,47 @@ test('4.5D Weather Anomalies, Guild Orders, Alchemical Potion Belt, Merchant Car
   assert.equal(gradeSPlus.grade, 'S+');
   assert.equal(gradeSPlus.bonusCoins, 45);
 });
+
+test('Stargate 4D × Obsidian Liminal Nodes, 4D Tesseract, Gravity Funnel, Celestial Carousel, Vas Hermeticum Bubbles, and Box Breathing work deterministically', () => {
+  assert.equal(SURREAL_THEMES.length, 4);
+  assert.equal(LIMINAL_NODES.length, 7);
+  assert.equal(TESSERACT_VERTICES.length, 16);
+  assert.equal(TESSERACT_EDGES.length, 32);
+
+  const funnelHit = calculateFunnelHit(20, 2, 2, true);
+  assert.equal(funnelHit.score, 32);
+  assert.equal(funnelHit.streak, 3);
+  assert.equal(funnelHit.maxStreak, 3);
+
+  const carouselScore = calculateCarouselFusionScore(50, 1, 3);
+  assert.equal(carouselScore.score, 125);
+  assert.equal(carouselScore.scaleCount, 2);
+
+  assert.equal(mergeBubbleRadii(30, 20), 40);
+
+  const breathStep = advanceBoxBreathingTimer(0, 1);
+  assert.equal(breathStep.breathPhase, 1);
+  assert.equal(breathStep.phaseTimer, 4);
+
+  const coherence = calculateNavigatorCoherence(
+    [
+      {
+        id: 'rec-1',
+        attractionName: 'Ловец Сфер',
+        score: 120,
+        dateString: 'Сегодня',
+        noteChainLength: 5,
+        themePalette: 'Обсидиановый Горизонт',
+      },
+    ],
+    32,
+    3
+  );
+  assert.equal(coherence.coherenceIndex >= 45, true);
+
+  const rewards = computeTransitRewardConversion(85, 32, coherence.coherenceIndex);
+  assert.equal(rewards.bonusGold >= 25, true);
+  assert.equal(rewards.bonusMana >= 3, true);
+  assert.equal(rewards.bonusQuantumCharges, 2);
+});
+
