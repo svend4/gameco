@@ -3,23 +3,45 @@ import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import {
   BackgroundStyle,
+  BiomeKey,
+  BIOMES,
+  FamiliarCompanion,
   HeroAvatar,
   MazeData,
   MazeEnemy,
   Position,
+  SECTOR_WEATHERS_CATALOG,
+  SectorWeatherKey,
 } from '../game/rules';
 
-export type Camera3DMode = 'chase' | 'diorama';
+export type Camera3DMode = '1.5d-wave' | '2.5d-diorama' | '3d-chase' | '3.5d-quantum';
+
+export interface VfxBurstPayload {
+  id: number;
+  r: number;
+  c: number;
+  colorHex: number;
+}
 
 interface Maze3DViewportProps {
   maze: MazeData;
+  biomeKey: BiomeKey;
   playerPos: Position;
   starsRemaining: Position[];
   chestsRemaining: Position[];
+  shrinesRemaining: Position[];
+  keyCollected: boolean;
   enemies: MazeEnemy[];
   activeHero: HeroAvatar;
+  activeFamiliar?: FamiliarCompanion;
   cameraMode: Camera3DMode;
   boardShake: boolean;
+  phaseGatesOpen?: boolean;
+  enemyFrozenTurns?: number;
+  sectorWeather?: SectorWeatherKey;
+  historyPositions?: Position[];
+  quantumTarget?: Position | null;
+  vfxBurst?: VfxBurstPayload | null;
   onMoveStep: (dr: number, dc: number) => void;
 }
 
@@ -55,7 +77,6 @@ function createEmojiCanvasTexture(
 
   ctx.clearRect(0, 0, 256, 256);
 
-  // Badge circle backdrop
   ctx.beginPath();
   ctx.arc(128, 128, 112, 0, Math.PI * 2);
   ctx.fillStyle = bgHex;
@@ -64,14 +85,12 @@ function createEmojiCanvasTexture(
   ctx.strokeStyle = borderHex;
   ctx.stroke();
 
-  // Inner highlight ring
   ctx.beginPath();
   ctx.arc(128, 128, 96, 0, Math.PI * 2);
   ctx.lineWidth = 3;
   ctx.strokeStyle = 'rgba(255,255,255,0.35)';
   ctx.stroke();
 
-  // Crisp centered emoji
   ctx.font = '132px "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
@@ -84,7 +103,11 @@ function createEmojiCanvasTexture(
   return tex;
 }
 
-function createFloorGridTexture(maxAnisotropy: number): {
+function createFloorGridTexture(
+  fillHex: string,
+  strokeHex: string,
+  maxAnisotropy: number
+): {
   map: THREE.CanvasTexture;
   bumpMap: THREE.CanvasTexture;
 } {
@@ -93,16 +116,14 @@ function createFloorGridTexture(maxAnisotropy: number): {
   canvas.height = 256;
   const ctx = canvas.getContext('2d')!;
 
-  ctx.fillStyle = '#1b152c';
+  ctx.fillStyle = fillHex;
   ctx.fillRect(0, 0, 256, 256);
 
-  // Subtle tile border frame
-  ctx.strokeStyle = '#36295a';
+  ctx.strokeStyle = strokeHex;
   ctx.lineWidth = 6;
   ctx.strokeRect(6, 6, 244, 244);
 
-  // Corner rivets
-  ctx.fillStyle = '#58428c';
+  ctx.fillStyle = strokeHex;
   [22, 234].forEach((x) => {
     [22, 234].forEach((y) => {
       ctx.beginPath();
@@ -117,7 +138,6 @@ function createFloorGridTexture(maxAnisotropy: number): {
   map.wrapT = THREE.RepeatWrapping;
   map.anisotropy = maxAnisotropy;
 
-  // Grayscale bump map for stone micro-relief
   const bumpCanvas = document.createElement('canvas');
   bumpCanvas.width = 128;
   bumpCanvas.height = 128;
@@ -135,17 +155,20 @@ function createFloorGridTexture(maxAnisotropy: number): {
   return { map, bumpMap };
 }
 
-function createWallBlockTexture(maxAnisotropy: number): THREE.CanvasTexture {
+function createWallBlockTexture(
+  fillHex: string,
+  strokeHex: string,
+  maxAnisotropy: number
+): THREE.CanvasTexture {
   const canvas = document.createElement('canvas');
   canvas.width = 256;
   canvas.height = 256;
   const ctx = canvas.getContext('2d')!;
 
-  ctx.fillStyle = '#38324c';
+  ctx.fillStyle = fillHex;
   ctx.fillRect(0, 0, 256, 256);
 
-  // Architectural masonry courses
-  ctx.strokeStyle = '#252036';
+  ctx.strokeStyle = strokeHex;
   ctx.lineWidth = 6;
   ctx.strokeRect(4, 4, 248, 248);
   ctx.beginPath();
@@ -159,8 +182,7 @@ function createWallBlockTexture(maxAnisotropy: number): THREE.CanvasTexture {
   ctx.lineTo(192, 256);
   ctx.stroke();
 
-  // Subtle top bevel glow line
-  ctx.fillStyle = 'rgba(167, 139, 250, 0.22)';
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.16)';
   ctx.fillRect(8, 8, 240, 18);
 
   const tex = new THREE.CanvasTexture(canvas);
@@ -186,62 +208,96 @@ function createContactShadowTexture(): THREE.CanvasTexture {
 
 export const Maze3DViewport: React.FC<Maze3DViewportProps> = ({
   maze,
+  biomeKey,
   playerPos,
   starsRemaining,
   chestsRemaining,
+  shrinesRemaining,
+  keyCollected,
   enemies,
   activeHero,
+  activeFamiliar,
   cameraMode,
   boardShake,
+  phaseGatesOpen = false,
+  enemyFrozenTurns = 0,
+  historyPositions = [],
+  quantumTarget = null,
+  vfxBurst = null,
   onMoveStep,
 }) => {
   const mountRef = useRef<HTMLDivElement>(null);
 
-  // Store latest props in refs so React HUD updates never tear down the WebGL canvas
   const stateRef = useRef({
     maze,
+    biomeKey,
     playerPos,
     starsRemaining,
     chestsRemaining,
+    shrinesRemaining,
+    keyCollected,
     enemies,
     activeHero,
+    activeFamiliar,
     cameraMode,
     boardShake,
+    phaseGatesOpen,
+    enemyFrozenTurns,
+    historyPositions,
+    quantumTarget,
+    vfxBurst,
     onMoveStep,
   });
 
   useEffect(() => {
     stateRef.current = {
       maze,
+      biomeKey,
       playerPos,
       starsRemaining,
       chestsRemaining,
+      shrinesRemaining,
+      keyCollected,
       enemies,
       activeHero,
+      activeFamiliar,
       cameraMode,
       boardShake,
+      phaseGatesOpen,
+      enemyFrozenTurns,
+      historyPositions,
+      quantumTarget,
+      vfxBurst,
       onMoveStep,
     };
   }, [
     maze,
+    biomeKey,
     playerPos,
     starsRemaining,
     chestsRemaining,
+    shrinesRemaining,
+    keyCollected,
     enemies,
     activeHero,
+    activeFamiliar,
     cameraMode,
     boardShake,
+    phaseGatesOpen,
+    enemyFrozenTurns,
+    historyPositions,
+    quantumTarget,
+    vfxBurst,
     onMoveStep,
   ]);
 
-  // Rebuild trigger refs
   const rebuildLevelRef = useRef<(() => void) | null>(null);
   const rebuildHeroTexturesRef = useRef<(() => void) | null>(null);
   const syncDynamicEntitiesRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     rebuildLevelRef.current?.();
-  }, [maze]);
+  }, [maze, biomeKey]);
 
   useEffect(() => {
     rebuildHeroTexturesRef.current?.();
@@ -250,17 +306,25 @@ export const Maze3DViewport: React.FC<Maze3DViewportProps> = ({
     activeHero.accessoryEmoji,
     activeHero.flagEmoji,
     activeHero.backgroundStyle,
+    activeFamiliar?.emoji,
   ]);
 
   useEffect(() => {
     syncDynamicEntitiesRef.current?.();
-  }, [starsRemaining, chestsRemaining, enemies]);
+  }, [
+    starsRemaining,
+    chestsRemaining,
+    shrinesRemaining,
+    keyCollected,
+    phaseGatesOpen,
+    enemyFrozenTurns,
+    enemies,
+  ]);
 
   useEffect(() => {
     const container = mountRef.current;
     if (!container) return;
 
-    // 1. Software-WebGL detection from GPU renderer string (never userAgent)
     const isSoftwareGl = (() => {
       const probeCanvas = document.createElement('canvas');
       const gl = probeCanvas.getContext('webgl2') || probeCanvas.getContext('webgl');
@@ -294,7 +358,6 @@ export const Maze3DViewport: React.FC<Maze3DViewportProps> = ({
 
     const maxAnisotropy = renderer.capabilities.getMaxAnisotropy();
 
-    // 2. Scene, Fog & Studio Environment Map (RoomEnvironment)
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x130e24);
     scene.fog = new THREE.FogExp2(0x130e24, 0.018);
@@ -303,15 +366,14 @@ export const Maze3DViewport: React.FC<Maze3DViewportProps> = ({
     scene.environment = pmremGenerator.fromScene(new RoomEnvironment(), 0.04).texture;
     pmremGenerator.dispose();
 
-    // 3. Camera
     const camera = new THREE.PerspectiveCamera(46, initW / initH, 0.5, 140);
     camera.position.set(0, 18, 14);
 
-    // 4. Balanced 3-Point Warm/Cool Studio Lighting Rig
-    const hemiLight = new THREE.HemisphereLight(0xa78bfa, 0x160f29, 1.35);
+    // 3-Point Warm/Cool Studio Lighting Rig + Hero Dynamic Torchlight
+    const hemiLight = new THREE.HemisphereLight(0xa78bfa, 0x160f29, 1.3);
     scene.add(hemiLight);
 
-    const keyLight = new THREE.DirectionalLight(0xffe8c2, 2.1);
+    const keyLight = new THREE.DirectionalLight(0xffe8c2, 2.0);
     keyLight.position.set(16, 28, 18);
     if (!isSoftwareGl) {
       keyLight.castShadow = true;
@@ -332,7 +394,10 @@ export const Maze3DViewport: React.FC<Maze3DViewportProps> = ({
     rimLight.position.set(-18, 16, -16);
     scene.add(rimLight);
 
-    // Shared Textures & Materials
+    // Dynamic Torchlight PointLight attached to Hero (for Medieval Citadel Torchlight Mode)
+    const heroTorchLight = new THREE.PointLight(0xff9933, 0, 15, 1.5);
+    heroTorchLight.position.set(0, 2.2, 0);
+
     const contactShadowTex = createContactShadowTexture();
     const contactShadowMat = new THREE.MeshBasicMaterial({
       map: contactShadowTex,
@@ -343,10 +408,6 @@ export const Maze3DViewport: React.FC<Maze3DViewportProps> = ({
     const shadowDiscGeo = new THREE.CircleGeometry(0.82, 20);
     shadowDiscGeo.rotateX(-Math.PI / 2);
 
-    const floorTextures = createFloorGridTexture(maxAnisotropy);
-    const wallTex = createWallBlockTexture(maxAnisotropy);
-
-    // Groups for scene organization
     const levelGroup = new THREE.Group();
     scene.add(levelGroup);
 
@@ -356,7 +417,6 @@ export const Maze3DViewport: React.FC<Maze3DViewportProps> = ({
     const enemiesGroup = new THREE.Group();
     scene.add(enemiesGroup);
 
-    // Interactive floor tiles for click-to-move raycasting
     const floorTiles: THREE.Mesh[] = [];
     const highlightRingGeo = new THREE.RingGeometry(0.45, 0.65, 24);
     highlightRingGeo.rotateX(-Math.PI / 2);
@@ -371,17 +431,16 @@ export const Maze3DViewport: React.FC<Maze3DViewportProps> = ({
     scene.add(adjacentRingsGroup);
 
     // =========================================================
-    // COMPOSITE 7-PART 3D HERO AVATAR RIG (THREE.Group)
+    // COMPOSITE 8-PART 3D HERO + FAMILIAR AVATAR RIG (THREE.Group)
     // =========================================================
     const heroGroup = new THREE.Group();
+    heroGroup.add(heroTorchLight);
     scene.add(heroGroup);
 
-    // Part 1: Contact Shadow Disc flush on ground (y = 0.015)
     const heroShadow = new THREE.Mesh(shadowDiscGeo, contactShadowMat);
     heroShadow.position.y = 0.015;
     heroGroup.add(heroShadow);
 
-    // Part 2: Brushed Metallic Hover Pedestal Base
     const pedestalGeo = new THREE.CylinderGeometry(0.62, 0.74, 0.22, 24);
     const pedestalMat = new THREE.MeshStandardMaterial({
       color: 0x2e2252,
@@ -392,7 +451,6 @@ export const Maze3DViewport: React.FC<Maze3DViewportProps> = ({
     pedestalMesh.position.y = 0.11;
     heroGroup.add(pedestalMesh);
 
-    // Part 3: Glowing Elemental Energy Ring
     const ringGeo = new THREE.TorusGeometry(0.68, 0.06, 12, 32);
     ringGeo.rotateX(Math.PI / 2);
     const heroRingMat = new THREE.MeshStandardMaterial({
@@ -406,7 +464,6 @@ export const Maze3DViewport: React.FC<Maze3DViewportProps> = ({
     heroRingMesh.position.y = 0.23;
     heroGroup.add(heroRingMesh);
 
-    // Part 4: Sculpted Hero Chassis / Armor Collar
     const torsoGeo = new THREE.CylinderGeometry(0.42, 0.52, 0.55, 20);
     const torsoMat = new THREE.MeshStandardMaterial({
       color: 0x6750a4,
@@ -417,7 +474,6 @@ export const Maze3DViewport: React.FC<Maze3DViewportProps> = ({
     torsoMesh.position.y = 0.52;
     heroGroup.add(torsoMesh);
 
-    // Part 5: 3D Holographic Medallion Frame + Emoji Billboard Sprite
     const heroFloatPivot = new THREE.Group();
     heroFloatPivot.position.y = 1.25;
     heroGroup.add(heroFloatPivot);
@@ -427,7 +483,6 @@ export const Maze3DViewport: React.FC<Maze3DViewportProps> = ({
     heroSprite.scale.set(1.38, 1.38, 1);
     heroFloatPivot.add(heroSprite);
 
-    // Part 6: Orbiting Weapon / Accessory Satellite
     const orbitPivot = new THREE.Group();
     orbitPivot.position.y = 1.25;
     heroGroup.add(orbitPivot);
@@ -438,14 +493,19 @@ export const Maze3DViewport: React.FC<Maze3DViewportProps> = ({
     accSprite.scale.set(0.65, 0.65, 1);
     orbitPivot.add(accSprite);
 
-    // Part 7: Flag / Emblem Crest Satellite
     const flagSpriteMat = new THREE.SpriteMaterial({ color: 0xffffff });
     const flagSprite = new THREE.Sprite(flagSpriteMat);
     flagSprite.position.set(-0.82, -0.2, 0.25);
     flagSprite.scale.set(0.6, 0.6, 1);
     orbitPivot.add(flagSprite);
 
-    // Helper to convert (r, c) grid coords to 3D world (x, z)
+    // 8th Part: 3D Companion Familiar Sprite orbiting overhead
+    const familiarSpriteMat = new THREE.SpriteMaterial({ color: 0xffffff });
+    const familiarSprite = new THREE.Sprite(familiarSpriteMat);
+    familiarSprite.position.set(0.0, 0.58, -0.88);
+    familiarSprite.scale.set(0.68, 0.68, 1);
+    orbitPivot.add(familiarSprite);
+
     const gridToWorld = (r: number, c: number, rows: number, cols: number) => {
       const offsetX = -((cols - 1) * TILE_SIZE) / 2;
       const offsetZ = -((rows - 1) * TILE_SIZE) / 2;
@@ -456,7 +516,7 @@ export const Maze3DViewport: React.FC<Maze3DViewportProps> = ({
     };
 
     const rebuildHeroTextures = () => {
-      const { activeHero: h } = stateRef.current;
+      const { activeHero: h, activeFamiliar: fam } = stateRef.current;
       const elemHex = ELEMENTAL_HEX[h.backgroundStyle] ?? 0xe94057;
       heroRingMat.color.setHex(elemHex);
       heroRingMat.emissive.setHex(elemHex);
@@ -484,11 +544,20 @@ export const Maze3DViewport: React.FC<Maze3DViewportProps> = ({
         maxAnisotropy
       );
       flagSpriteMat.needsUpdate = true;
+
+      if (familiarSpriteMat.map) familiarSpriteMat.map.dispose();
+      familiarSpriteMat.map = createEmojiCanvasTexture(
+        fam?.emoji ?? '🦉',
+        '#0f172a',
+        '#38bdf8',
+        maxAnisotropy
+      );
+      familiarSpriteMat.needsUpdate = true;
     };
     rebuildHeroTexturesRef.current = rebuildHeroTextures;
     rebuildHeroTextures();
 
-    // Shared Geometries & Materials for Collectibles and Enemies
+    // Shared Geometries & Materials for Collectibles, Traps, Portals, Keys, Shrines, Enemies
     const starOctaGeo = new THREE.OctahedronGeometry(0.42, 0);
     const starOctaMat = new THREE.MeshStandardMaterial({
       color: 0xfbbf24,
@@ -518,11 +587,47 @@ export const Maze3DViewport: React.FC<Maze3DViewportProps> = ({
       roughness: 0.2,
     });
 
+    const shrinePillarGeo = new THREE.CylinderGeometry(0.32, 0.44, 0.75, 8);
+    const shrinePillarMat = new THREE.MeshStandardMaterial({
+      color: 0x10b981,
+      emissive: 0x059669,
+      emissiveIntensity: 0.35,
+      metalness: 0.5,
+      roughness: 0.3,
+    });
+
+    const portalTorusGeo = new THREE.TorusGeometry(0.58, 0.08, 12, 28);
+    portalTorusGeo.rotateX(Math.PI / 2);
+    const portalMat = new THREE.MeshStandardMaterial({
+      color: 0x06b6d4,
+      emissive: 0x0891b2,
+      emissiveIntensity: 0.9,
+      roughness: 0.2,
+      metalness: 0.8,
+    });
+
+    const spikeConeGeo = new THREE.ConeGeometry(0.16, 0.42, 8);
+    const spikeMat = new THREE.MeshStandardMaterial({
+      color: 0xe11d48,
+      metalness: 0.85,
+      roughness: 0.25,
+    });
+
     const starIconTex = createEmojiCanvasTexture('⭐', '#451a03', '#fbbf24', maxAnisotropy);
     const chestIconTex = createEmojiCanvasTexture('🎁', '#451a03', '#f59e0b', maxAnisotropy);
+    const keyIconTex = createEmojiCanvasTexture('🗝️', '#451a03', '#fde047', maxAnisotropy);
+    const leverClosedTex = createEmojiCanvasTexture('🎚️', '#3b0764', '#c084fc', maxAnisotropy);
+    const leverOpenTex = createEmojiCanvasTexture('🎚️', '#064e3b', '#34d399', maxAnisotropy);
+    const merchantIconTex = createEmojiCanvasTexture('🐪', '#451a03', '#fbbf24', maxAnisotropy);
+    const shrineIconTex = createEmojiCanvasTexture('⛩️', '#064e3b', '#34d399', maxAnisotropy);
+    const portalIconTex = createEmojiCanvasTexture('🌀', '#083344', '#22d3ee', maxAnisotropy);
     const exitIconTex = createEmojiCanvasTexture('🏁', '#064e3b', '#34d399', maxAnisotropy);
+    const lockedExitTex = createEmojiCanvasTexture('🔒', '#450a0a', '#f43f5e', maxAnisotropy);
 
-    // Map of enemy meshes by id for smooth interpolation
+    let exitGateSprite: THREE.Sprite | null = null;
+    let exitArchBarMesh: THREE.Mesh | null = null;
+    const phaseGateMeshes: THREE.Mesh[] = [];
+
     const enemyMeshesMap = new Map<
       string,
       {
@@ -533,17 +638,35 @@ export const Maze3DViewport: React.FC<Maze3DViewportProps> = ({
     >();
 
     const syncDynamicEntities = () => {
-      const { maze: m, starsRemaining: stars, chestsRemaining: chests, enemies: ens } =
-        stateRef.current;
+      const {
+        maze: m,
+        starsRemaining: stars,
+        chestsRemaining: chests,
+        shrinesRemaining: shrines,
+        keyCollected: hasKey,
+        phaseGatesOpen: gatesOpen,
+        enemyFrozenTurns: frozenTurns,
+        enemies: ens,
+      } = stateRef.current;
 
-      // 1. Rebuild Stars & Chests
       while (collectiblesGroup.children.length > 0) {
         collectiblesGroup.remove(collectiblesGroup.children[0]);
       }
 
+      // Update Exit Gate Lock/Unlock visual state
+      if (exitGateSprite) {
+        (exitGateSprite.material as THREE.SpriteMaterial).map = hasKey
+          ? exitIconTex
+          : lockedExitTex;
+        (exitGateSprite.material as THREE.SpriteMaterial).needsUpdate = true;
+      }
+      if (exitArchBarMesh) {
+        exitArchBarMesh.visible = !hasKey;
+      }
+
+      // 1. Stars ⭐
       stars.forEach((sPos) => {
         const w = gridToWorld(sPos.r, sPos.c, m.rows, m.cols);
-        // 4-part Composite Star Shrine Group
         const sGroup = new THREE.Group();
         sGroup.position.set(w.x, 0, w.z);
 
@@ -569,9 +692,9 @@ export const Maze3DViewport: React.FC<Maze3DViewportProps> = ({
         collectiblesGroup.add(sGroup);
       });
 
+      // 2. Treasure Chests 🎁
       chests.forEach((cPos) => {
         const w = gridToWorld(cPos.r, cPos.c, m.rows, m.cols);
-        // 5-part Composite 3D Treasure Chest Group
         const cGroup = new THREE.Group();
         cGroup.position.set(w.x, 0, w.z);
 
@@ -596,7 +719,134 @@ export const Maze3DViewport: React.FC<Maze3DViewportProps> = ({
         collectiblesGroup.add(cGroup);
       });
 
-      // 2. Sync Enemy 3D Rigs
+      // 3. Golden Key 🗝️ (if not collected yet)
+      if (!hasKey && m.keyPos) {
+        const w = gridToWorld(m.keyPos.r, m.keyPos.c, m.rows, m.cols);
+        const kGroup = new THREE.Group();
+        kGroup.position.set(w.x, 0, w.z);
+
+        const kPedestal = new THREE.Mesh(starBaseGeo, chestGoldMat);
+        kPedestal.position.y = 0.08;
+        kGroup.add(kPedestal);
+
+        const kCrystal = new THREE.Mesh(starOctaGeo, chestGoldMat);
+        kCrystal.position.y = 0.65;
+        kCrystal.name = 'spinCrystal';
+        kGroup.add(kCrystal);
+
+        const kSprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: keyIconTex }));
+        kSprite.position.set(0, 1.35, 0);
+        kSprite.scale.set(0.85, 0.85, 1);
+        kGroup.add(kSprite);
+
+        collectiblesGroup.add(kGroup);
+      }
+
+      // 3b. Architect's Lever 🎚️ (toggles 4.0D Phase Gates 🟪)
+      if (m.leverPos) {
+        const w = gridToWorld(m.leverPos.r, m.leverPos.c, m.rows, m.cols);
+        const lGroup = new THREE.Group();
+        lGroup.position.set(w.x, 0, w.z);
+
+        const lPedestal = new THREE.Mesh(starBaseGeo, portalMat);
+        lPedestal.position.y = 0.08;
+        lGroup.add(lPedestal);
+
+        const lSprite = new THREE.Sprite(
+          new THREE.SpriteMaterial({ map: gatesOpen ? leverOpenTex : leverClosedTex })
+        );
+        lSprite.position.set(0, 1.15, 0);
+        lSprite.scale.set(0.82, 0.82, 1);
+        lGroup.add(lSprite);
+
+        collectiblesGroup.add(lGroup);
+      }
+
+      // 3c. Wandering Caravan Merchant 🐪 (Alchemist Bazaar in 3D Maze)
+      if (m.merchantPos) {
+        const w = gridToWorld(m.merchantPos.r, m.merchantPos.c, m.rows, m.cols);
+        const mGroup = new THREE.Group();
+        mGroup.position.set(w.x, 0, w.z);
+
+        const mCarpet = new THREE.Mesh(portalTorusGeo, chestGoldMat);
+        mCarpet.position.y = 0.07;
+        mGroup.add(mCarpet);
+
+        const mPedestal = new THREE.Mesh(starBaseGeo, chestWoodMat);
+        mPedestal.position.y = 0.14;
+        mGroup.add(mPedestal);
+
+        const mSprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: merchantIconTex }));
+        mSprite.position.set(0, 1.24, 0);
+        mSprite.scale.set(0.88, 0.88, 1);
+        mGroup.add(mSprite);
+
+        collectiblesGroup.add(mGroup);
+      }
+
+      // 4. Ancient Shrines ⛩️
+      shrines.forEach((shPos) => {
+        const w = gridToWorld(shPos.r, shPos.c, m.rows, m.cols);
+        const shGroup = new THREE.Group();
+        shGroup.position.set(w.x, 0, w.z);
+
+        const pillar = new THREE.Mesh(shrinePillarGeo, shrinePillarMat);
+        pillar.position.y = 0.38;
+        shGroup.add(pillar);
+
+        const shSprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: shrineIconTex }));
+        shSprite.position.set(0, 1.25, 0);
+        shSprite.scale.set(0.82, 0.82, 1);
+        sGroupAdd(shGroup, shSprite);
+
+        collectiblesGroup.add(shGroup);
+      });
+
+      function sGroupAdd(g: THREE.Group, s: THREE.Object3D) {
+        g.add(s);
+      }
+
+      // 5. Quantum Portals 🌀 (A and B)
+      if (m.portals) {
+        [m.portals.a, m.portals.b].forEach((pPos) => {
+          const w = gridToWorld(pPos.r, pPos.c, m.rows, m.cols);
+          const pGroup = new THREE.Group();
+          pGroup.position.set(w.x, 0, w.z);
+
+          const ring = new THREE.Mesh(portalTorusGeo, portalMat);
+          ring.position.y = 0.08;
+          pGroup.add(ring);
+
+          const pSprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: portalIconTex }));
+          pSprite.position.set(0, 0.95, 0);
+          pSprite.scale.set(0.75, 0.75, 1);
+          pGroup.add(pSprite);
+
+          collectiblesGroup.add(pGroup);
+        });
+      }
+
+      // 6. Mechanical Floor Spike Traps ⚙️
+      m.traps.forEach((tPos) => {
+        const w = gridToWorld(tPos.r, tPos.c, m.rows, m.cols);
+        const tGroup = new THREE.Group();
+        tGroup.position.set(w.x, 0, w.z);
+
+        const offsets = [
+          [-0.3, -0.3],
+          [0.3, -0.3],
+          [-0.3, 0.3],
+          [0.3, 0.3],
+        ];
+        offsets.forEach(([ox, oz]) => {
+          const cone = new THREE.Mesh(spikeConeGeo, spikeMat);
+          cone.position.set(ox, 0.21, oz);
+          tGroup.add(cone);
+        });
+        collectiblesGroup.add(tGroup);
+      });
+
+      // 7. Sync Enemy 3D Rigs
       const activeIds = new Set(ens.map((e) => e.id));
       for (const [id, entry] of enemyMeshesMap.entries()) {
         if (!activeIds.has(id)) {
@@ -609,7 +859,6 @@ export const Maze3DViewport: React.FC<Maze3DViewportProps> = ({
         const w = gridToWorld(enemy.r, enemy.c, m.rows, m.cols);
         let entry = enemyMeshesMap.get(enemy.id);
         if (!entry) {
-          // Build 5-part Composite Enemy Rig
           const eGroup = new THREE.Group();
           eGroup.position.set(w.x, 0, w.z);
 
@@ -676,21 +925,53 @@ export const Maze3DViewport: React.FC<Maze3DViewportProps> = ({
           enemyMeshesMap.set(enemy.id, entry);
         }
 
-        // Update telegraph ring state
         const mat = entry.telegraphRing.material as THREE.MeshBasicMaterial;
-        mat.opacity = enemy.telegraphing ? 0.85 : 0.22;
-        entry.telegraphRing.scale.setScalar(enemy.telegraphing ? 1.18 : 1.0);
+        if (frozenTurns > 0) {
+          mat.color.setHex(0x22d3ee);
+          mat.opacity = 0.9;
+          entry.telegraphRing.scale.setScalar(1.24);
+        } else {
+          mat.color.setHex(0xf43f5e);
+          mat.opacity = enemy.telegraphing ? 0.85 : 0.22;
+          entry.telegraphRing.scale.setScalar(enemy.telegraphing ? 1.18 : 1.0);
+        }
       });
     };
     syncDynamicEntitiesRef.current = syncDynamicEntities;
 
     const rebuildLevelGeometry = () => {
-      const { maze: m, playerPos: pPos } = stateRef.current;
+      const { maze: m, biomeKey: bKey, playerPos: pPos } = stateRef.current;
+      const biome = BIOMES[bKey] ?? BIOMES.CYBER_NEON;
+
+      // Update scene atmosphere & lighting to match active Biome!
+      scene.background = new THREE.Color(biome.skyHex);
+      scene.fog = new THREE.FogExp2(biome.fogHex, biome.fogDensity);
+      keyLight.color.setHex(biome.keyLightHex);
+      rimLight.color.setHex(biome.rimLightHex);
+
+      // In Medieval Citadel biome, dim global lights and activate warm Hero Torchlight!
+      if (bKey === 'MEDIEVAL_CITADEL') {
+        keyLight.intensity = 0.85;
+        hemiLight.intensity = 0.55;
+        heroTorchLight.intensity = 4.2;
+      } else {
+        keyLight.intensity = 2.0;
+        hemiLight.intensity = 1.3;
+        heroTorchLight.intensity = 0;
+      }
+
+      const floorTextures = createFloorGridTexture(
+        biome.floorFill,
+        biome.floorStroke,
+        maxAnisotropy
+      );
+      const wallTex = createWallBlockTexture(biome.wallFill, biome.wallStroke, maxAnisotropy);
 
       while (levelGroup.children.length > 0) {
         levelGroup.remove(levelGroup.children[0]);
       }
       floorTiles.length = 0;
+      phaseGateMeshes.length = 0;
       enemyMeshesMap.clear();
       while (enemiesGroup.children.length > 0) {
         enemiesGroup.remove(enemiesGroup.children[0]);
@@ -699,10 +980,9 @@ export const Maze3DViewport: React.FC<Maze3DViewportProps> = ({
       const boardW = m.cols * TILE_SIZE;
       const boardH = m.rows * TILE_SIZE;
 
-      // Outer Dark Platform Pedestal under the entire 3D Labyrinth
       const platformGeo = new THREE.BoxGeometry(boardW + 2.4, 0.8, boardH + 2.4);
       const platformMat = new THREE.MeshStandardMaterial({
-        color: 0x140f26,
+        color: biome.skyHex,
         roughness: 0.8,
         metalness: 0.2,
       });
@@ -711,13 +991,15 @@ export const Maze3DViewport: React.FC<Maze3DViewportProps> = ({
       platformMesh.receiveShadow = !isSoftwareGl;
       levelGroup.add(platformMesh);
 
-      // Count walls for InstancedMesh
       const wallCoords: { r: number; c: number }[] = [];
       const walkableCoords: { r: number; c: number }[] = [];
+      const phaseSet = new Set((m.phaseGates ?? []).map((g) => `${g.r},${g.c}`));
 
       for (let r = 0; r < m.rows; r++) {
         for (let c = 0; c < m.cols; c++) {
-          if (m.grid[r][c] === 'WALL') {
+          if (phaseSet.has(`${r},${c}`)) {
+            walkableCoords.push({ r, c });
+          } else if (m.grid[r][c] === 'WALL') {
             wallCoords.push({ r, c });
           } else {
             walkableCoords.push({ r, c });
@@ -725,7 +1007,6 @@ export const Maze3DViewport: React.FC<Maze3DViewportProps> = ({
         }
       }
 
-      // Walkable Floor Tiles (for raycasting clicks + tactile grid look)
       const tileGeo = new THREE.PlaneGeometry(TILE_SIZE * 0.98, TILE_SIZE * 0.98);
       tileGeo.rotateX(-Math.PI / 2);
       const tileMat = new THREE.MeshStandardMaterial({
@@ -747,7 +1028,6 @@ export const Maze3DViewport: React.FC<Maze3DViewportProps> = ({
         floorTiles.push(fMesh);
       });
 
-      // InstancedMesh for 3D Labyrinth Walls (Primary Block + Top Neon Bevel Cap)
       const wallHeight = 1.55;
       const wallGeo = new THREE.BoxGeometry(TILE_SIZE * 0.96, wallHeight, TILE_SIZE * 0.96);
       const wallMat = new THREE.MeshStandardMaterial({
@@ -756,13 +1036,31 @@ export const Maze3DViewport: React.FC<Maze3DViewportProps> = ({
         roughness: 0.65,
         metalness: 0.22,
       });
+
+      // 4.0D Dynamic Phase Gates (Tesseract Monoliths that slide down into the floor when lever is activated!)
+      const phaseGateMat = new THREE.MeshStandardMaterial({
+        color: 0xa855f7,
+        emissive: 0x7e22ce,
+        emissiveIntensity: 0.55,
+        roughness: 0.25,
+        metalness: 0.75,
+        transparent: true,
+        opacity: 0.88,
+      });
+      (m.phaseGates ?? []).forEach(({ r, c }) => {
+        const w = gridToWorld(r, c, m.rows, m.cols);
+        const gMesh = new THREE.Mesh(wallGeo, phaseGateMat);
+        gMesh.position.set(w.x, wallHeight / 2, w.z);
+        levelGroup.add(gMesh);
+        phaseGateMeshes.push(gMesh);
+      });
       const wallInstanced = new THREE.InstancedMesh(wallGeo, wallMat, wallCoords.length);
       wallInstanced.castShadow = !isSoftwareGl;
       wallInstanced.receiveShadow = !isSoftwareGl;
 
       const capGeo = new THREE.BoxGeometry(TILE_SIZE * 0.86, 0.12, TILE_SIZE * 0.86);
       const capMat = new THREE.MeshStandardMaterial({
-        color: 0x7c3aed,
+        color: biome.capHex,
         roughness: 0.25,
         metalness: 0.7,
       });
@@ -779,12 +1077,10 @@ export const Maze3DViewport: React.FC<Maze3DViewportProps> = ({
         _dummyMat.compose(_dummyPos, _dummyQuat, _dummyScale);
         wallInstanced.setMatrixAt(idx, _dummyMat);
 
-        // Subtle per-instance color tint
-        const shade = isBorder ? 0x9f85e8 : 0xc4b5fd;
+        const shade = isBorder ? biome.borderTintHex : biome.innerTintHex;
         _dummyColor.setHex(shade);
         wallInstanced.setColorAt(idx, _dummyColor);
 
-        // Top bevel cap
         _dummyPos.set(w.x, wallHeight * hScale + 0.05, w.z);
         _dummyScale.set(1, 1, 1);
         _dummyMat.compose(_dummyPos, _dummyQuat, _dummyScale);
@@ -801,7 +1097,7 @@ export const Maze3DViewport: React.FC<Maze3DViewportProps> = ({
       levelGroup.add(wallInstanced);
       levelGroup.add(capInstanced);
 
-      // 6-Part Composite 3D Exit Portal Gate at maze.exit
+      // 6-Part Composite 3D Exit Portal Gate at maze.exit (with Iron Portcullis Bar when locked)
       const exitW = gridToWorld(m.exit.r, m.exit.c, m.rows, m.cols);
       const exitGateGroup = new THREE.Group();
       exitGateGroup.position.set(exitW.x, 0, exitW.z);
@@ -831,6 +1127,18 @@ export const Maze3DViewport: React.FC<Maze3DViewportProps> = ({
       archLintel.position.set(0, 1.9, 0);
       exitGateGroup.add(archLintel);
 
+      const lockBarMesh = new THREE.Mesh(
+        new THREE.BoxGeometry(1.32, 0.14, 0.14),
+        new THREE.MeshStandardMaterial({
+          color: 0xf43f5e,
+          emissive: 0xe11d48,
+          emissiveIntensity: 0.6,
+        })
+      );
+      lockBarMesh.position.set(0, 0.85, 0);
+      exitArchBarMesh = lockBarMesh;
+      exitGateGroup.add(lockBarMesh);
+
       const vortexDisc = new THREE.Mesh(
         new THREE.CircleGeometry(0.68, 24),
         new THREE.MeshBasicMaterial({
@@ -848,11 +1156,11 @@ export const Maze3DViewport: React.FC<Maze3DViewportProps> = ({
       const exitSprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: exitIconTex }));
       exitSprite.position.set(0, 1.15, 0);
       exitSprite.scale.set(0.95, 0.95, 1);
+      exitGateSprite = exitSprite;
       exitGateGroup.add(exitSprite);
 
       levelGroup.add(exitGateGroup);
 
-      // Position Hero immediately at current playerPos
       const startW = gridToWorld(pPos.r, pPos.c, m.rows, m.cols);
       heroGroup.position.set(startW.x, 0, startW.z);
 
@@ -862,7 +1170,6 @@ export const Maze3DViewport: React.FC<Maze3DViewportProps> = ({
     rebuildLevelRef.current = rebuildLevelGeometry;
     rebuildLevelGeometry();
 
-    // Raycaster for clicking adjacent 3D floor tiles
     const raycaster = new THREE.Raycaster();
     const pointerNdc = new THREE.Vector2();
 
@@ -887,7 +1194,6 @@ export const Maze3DViewport: React.FC<Maze3DViewportProps> = ({
 
     renderer.domElement.addEventListener('pointerdown', handlePointerDown);
 
-    // ResizeObserver for crisp responsive viewport
     const resizeObserver = new ResizeObserver((entries) => {
       for (const entry of entries) {
         const { width, height } = entry.contentRect;
@@ -900,16 +1206,240 @@ export const Maze3DViewport: React.FC<Maze3DViewportProps> = ({
     });
     resizeObserver.observe(container);
 
-    // Pre-warm shaders on hardware GPUs
     if (!isSoftwareGl) {
       renderer.compile(scene, camera);
     }
 
-    // 5. Animation Loop with Clamped dt, Exponential Damping & Software-WebGL afterDraw Pacing
-    const clock = new THREE.Clock();
+    // =========================================================
+    // 1.5D / 2.5D / 3.5D INTERMEDIATE DIMENSIONAL VFX RIGS
+    // =========================================================
+    // 1.5D Waveguide Nodes & Ribbon
+    const pathNodeGeo = new THREE.OctahedronGeometry(0.18, 0);
+    const pathNodeMat = new THREE.MeshStandardMaterial({
+      color: 0xfbbf24,
+      emissive: 0xf59e0b,
+      emissiveIntensity: 0.9,
+      roughness: 0.2,
+      metalness: 0.7,
+    });
+    const pathRingGeo = new THREE.RingGeometry(0.14, 0.24, 16);
+    pathRingGeo.rotateX(-Math.PI / 2);
+    const pathRingMat = new THREE.MeshBasicMaterial({
+      color: 0x38bdf8,
+      transparent: true,
+      opacity: 0.55,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    });
+    const pathGuideGroup = new THREE.Group();
+    scene.add(pathGuideGroup);
+
+    const waveguideLineMat = new THREE.LineBasicMaterial({
+      color: 0x22d3ee,
+      transparent: true,
+      opacity: 0.75,
+    });
+    const maxWavePoints = 80;
+    const waveguidePositions = new Float32Array(maxWavePoints * 3);
+    const waveguideGeo = new THREE.BufferGeometry();
+    waveguideGeo.setAttribute('position', new THREE.BufferAttribute(waveguidePositions, 3));
+    waveguideGeo.setDrawRange(0, 0);
+    const waveguideLine = new THREE.Line(waveguideGeo, waveguideLineMat);
+    scene.add(waveguideLine);
+
+    // 2.5D Zero-GC Instanced Particle Burst Engine (48 Ballistic Crystal Shards)
+    const PARTICLE_COUNT = 48;
+    const shardGeo = new THREE.OctahedronGeometry(0.14, 0);
+    const shardMat = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      emissive: 0xfbbf24,
+      emissiveIntensity: 0.65,
+      roughness: 0.2,
+      metalness: 0.8,
+    });
+    const particleInstanced = new THREE.InstancedMesh(shardGeo, shardMat, PARTICLE_COUNT);
+    particleInstanced.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    scene.add(particleInstanced);
+
+    const partPosX = new Float32Array(PARTICLE_COUNT);
+    const partPosY = new Float32Array(PARTICLE_COUNT);
+    const partPosZ = new Float32Array(PARTICLE_COUNT);
+    const partVelX = new Float32Array(PARTICLE_COUNT);
+    const partVelY = new Float32Array(PARTICLE_COUNT);
+    const partVelZ = new Float32Array(PARTICLE_COUNT);
+    const partLife = new Float32Array(PARTICLE_COUNT);
+    const partMaxLife = new Float32Array(PARTICLE_COUNT);
+    let particleCursor = 0;
+
+    // Hide all particles initially
+    for (let i = 0; i < PARTICLE_COUNT; i++) {
+      _dummyPos.set(0, -10, 0);
+      _dummyQuat.identity();
+      _dummyScale.setScalar(0.001);
+      _dummyMat.compose(_dummyPos, _dummyQuat, _dummyScale);
+      particleInstanced.setMatrixAt(i, _dummyMat);
+      _dummyColor.setHex(0xfbbf24);
+      particleInstanced.setColorAt(i, _dummyColor);
+    }
+    particleInstanced.instanceMatrix.needsUpdate = true;
+    if (particleInstanced.instanceColor) particleInstanced.instanceColor.needsUpdate = true;
+
+    const triggerParticleBurst = (wx: number, wz: number, colorHex: number, count: number = 20) => {
+      shardMat.emissive.setHex(colorHex);
+      for (let k = 0; k < count; k++) {
+        const idx = (particleCursor + k) % PARTICLE_COUNT;
+        const angle = (Math.PI * 2 * k) / count + (k % 3) * 0.2;
+        const speed = 2.2 + (k % 5) * 0.65;
+        partPosX[idx] = wx + Math.cos(angle) * 0.2;
+        partPosY[idx] = 0.65 + (k % 3) * 0.15;
+        partPosZ[idx] = wz + Math.sin(angle) * 0.2;
+        partVelX[idx] = Math.cos(angle) * speed;
+        partVelY[idx] = 4.2 + (k % 4) * 1.1;
+        partVelZ[idx] = Math.sin(angle) * speed;
+        partMaxLife[idx] = 0.75 + (k % 3) * 0.18;
+        partLife[idx] = partMaxLife[idx];
+        _dummyColor.setHex(k % 2 === 0 ? colorHex : 0xffffff);
+        particleInstanced.setColorAt(idx, _dummyColor);
+      }
+      particleCursor = (particleCursor + count) % PARTICLE_COUNT;
+      if (particleInstanced.instanceColor) particleInstanced.instanceColor.needsUpdate = true;
+    };
+
+    // 3.5D Quantum-Chrono Afterimage Ghosts (4 Past Positions + Temporal Ribbon)
+    const MAX_GHOSTS = 4;
+    const ghostColors = [0x22d3ee, 0x38bdf8, 0x818cf8, 0xe879f9];
+    const ghostConeGeo = new THREE.ConeGeometry(0.38, 0.78, 12);
+    const ghostRingGeo = new THREE.TorusGeometry(0.48, 0.04, 8, 20);
+    ghostRingGeo.rotateX(Math.PI / 2);
+
+    const ghostMeshes: THREE.Group[] = [];
+    const chronoGhostsGroup = new THREE.Group();
+    scene.add(chronoGhostsGroup);
+
+    for (let g = 0; g < MAX_GHOSTS; g++) {
+      const gGroup = new THREE.Group();
+      const gMat = new THREE.MeshBasicMaterial({
+        color: ghostColors[g],
+        transparent: true,
+        opacity: 0.44 - g * 0.08,
+        wireframe: g % 2 === 1,
+        depthWrite: false,
+      });
+      const cone = new THREE.Mesh(ghostConeGeo, gMat);
+      cone.position.y = 0.45;
+      gGroup.add(cone);
+
+      const ring = new THREE.Mesh(
+        ghostRingGeo,
+        new THREE.MeshBasicMaterial({
+          color: ghostColors[g],
+          transparent: true,
+          opacity: 0.6 - g * 0.1,
+          depthWrite: false,
+        })
+      );
+      ring.position.y = 0.12;
+      gGroup.add(ring);
+
+      gGroup.visible = false;
+      chronoGhostsGroup.add(gGroup);
+      ghostMeshes.push(gGroup);
+    }
+
+    const chronoRibbonPos = new Float32Array((MAX_GHOSTS + 1) * 3);
+    const chronoRibbonGeo = new THREE.BufferGeometry();
+    chronoRibbonGeo.setAttribute('position', new THREE.BufferAttribute(chronoRibbonPos, 3));
+    chronoRibbonGeo.setDrawRange(0, 0);
+    const chronoRibbonLine = new THREE.Line(
+      chronoRibbonGeo,
+      new THREE.LineBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.7 })
+    );
+    scene.add(chronoRibbonLine);
+
+    // 3.5D Quantum Phase Target Portal (Landing Tile Across Wall for [Q])
+    const quantumTargetGroup = new THREE.Group();
+    quantumTargetGroup.visible = false;
+    scene.add(quantumTargetGroup);
+
+    const qOuterRing = new THREE.Mesh(
+      new THREE.TorusGeometry(0.64, 0.055, 10, 28),
+      new THREE.MeshBasicMaterial({
+        color: 0x22d3ee,
+        transparent: true,
+        opacity: 0.85,
+        depthWrite: false,
+      })
+    );
+    qOuterRing.rotation.x = Math.PI / 2;
+    qOuterRing.position.y = 0.08;
+    quantumTargetGroup.add(qOuterRing);
+
+    const qInnerRing = new THREE.Mesh(
+      new THREE.TorusGeometry(0.42, 0.04, 10, 24),
+      new THREE.MeshBasicMaterial({
+        color: 0xe879f9,
+        transparent: true,
+        opacity: 0.8,
+        depthWrite: false,
+      })
+    );
+    qInnerRing.rotation.x = Math.PI / 2;
+    qInnerRing.position.y = 0.24;
+    quantumTargetGroup.add(qInnerRing);
+
+    const qPillarGeo = new THREE.CylinderGeometry(0.36, 0.36, 3.2, 16, 1, true);
+    const qPillarMat = new THREE.MeshBasicMaterial({
+      color: 0x22d3ee,
+      transparent: true,
+      opacity: 0.24,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    });
+    const qPillarMesh = new THREE.Mesh(qPillarGeo, qPillarMat);
+    qPillarMesh.position.y = 1.6;
+    quantumTargetGroup.add(qPillarMesh);
+
+    // 3.5D Astral X-Ray Beacon Pillar above Golden Key / Exit
+    const astralKeyBeacon = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.24, 0.24, 4.2, 14, 1, true),
+      new THREE.MeshBasicMaterial({
+        color: 0xfde047,
+        transparent: true,
+        opacity: 0.28,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      })
+    );
+    astralKeyBeacon.visible = false;
+    scene.add(astralKeyBeacon);
+
+    // 4.5D Atmospheric Weather Anomaly Field (Zero-GC Points Buffer)
+    const WEATHER_COUNT = 36;
+    const weatherPositions = new Float32Array(WEATHER_COUNT * 3);
+    for (let w = 0; w < WEATHER_COUNT; w++) {
+      weatherPositions[w * 3] = ((w % 6) - 2.5) * 3.8;
+      weatherPositions[w * 3 + 1] = 0.5 + (w % 5) * 0.9;
+      weatherPositions[w * 3 + 2] = (Math.floor(w / 6) - 2.5) * 3.8;
+    }
+    const weatherGeo = new THREE.BufferGeometry();
+    weatherGeo.setAttribute('position', new THREE.BufferAttribute(weatherPositions, 3));
+    const weatherMat = new THREE.PointsMaterial({
+      color: 0xc084fc,
+      size: 0.22,
+      transparent: true,
+      opacity: 0.65,
+      depthWrite: false,
+    });
+    const weatherPoints = new THREE.Points(weatherGeo, weatherMat);
+    scene.add(weatherPoints);
+
+    let lastFrameTime = performance.now();
+    const startTime = lastFrameTime;
     let frameId = 0;
     let isDisposed = false;
     let lastAdjacentKey = '';
+    let lastBurstId = -1;
+    let currentWaveNodesCount = 0;
 
     function afterDraw(cb: () => void) {
       if (isDisposed) return;
@@ -937,19 +1467,32 @@ export const Maze3DViewport: React.FC<Maze3DViewportProps> = ({
 
     function tick() {
       if (isDisposed) return;
-      const rawDt = clock.getDelta();
+      const now = performance.now();
+      const rawDt = Math.max(0.001, (now - lastFrameTime) / 1000);
+      lastFrameTime = now;
       const dt = Math.min(rawDt, 0.05);
-      const elapsed = clock.getElapsedTime();
+      const elapsed = (now - startTime) / 1000;
 
       const {
         maze: m,
         playerPos: pPos,
+        starsRemaining: stars,
+        keyCollected: hasKey,
         enemies: ens,
         cameraMode: camMode,
         boardShake: shake,
+        phaseGatesOpen: gatesOpen,
+        historyPositions: histPos,
+        quantumTarget: qTarget,
+        vfxBurst: burst,
       } = stateRef.current;
 
-      // 1. Smoothly damp Hero position to target grid tile
+      // Animate 4.0D Phase Gates sliding smoothly into/out of floor
+      const targetGateY = gatesOpen ? -0.68 : 0.78;
+      phaseGateMeshes.forEach((gMesh) => {
+        gMesh.position.y = THREE.MathUtils.damp(gMesh.position.y, targetGateY, 8, dt);
+      });
+
       const targetHeroW = gridToWorld(pPos.r, pPos.c, m.rows, m.cols);
       heroGroup.position.x = THREE.MathUtils.damp(
         heroGroup.position.x,
@@ -964,17 +1507,37 @@ export const Maze3DViewport: React.FC<Maze3DViewportProps> = ({
         dt
       );
 
-      // Hero bobbing & orbiting accessory animation
       heroFloatPivot.position.y = 1.25 + Math.sin(elapsed * 3.2) * 0.08;
       orbitPivot.rotation.y = elapsed * 1.4;
 
-      // Update blue highlight rings on adjacent walkable tiles when player moves
-      const adjKey = `${pPos.r},${pPos.c}`;
+      // Trigger 2.5D Ballistic Particle Burst when vfxBurst event fires
+      if (burst && burst.id !== lastBurstId) {
+        lastBurstId = burst.id;
+        const bw = gridToWorld(burst.r, burst.c, m.rows, m.cols);
+        triggerParticleBurst(bw.x, bw.z, burst.colorHex, 24);
+      }
+
+      const adjKey = `${pPos.r},${pPos.c}:${stars.length}:${hasKey ? 1 : 0}:${gatesOpen ? 1 : 0}`;
       if (adjKey !== lastAdjacentKey) {
+        if (lastAdjacentKey !== '') {
+          // Small footstep spark burst on movement
+          triggerParticleBurst(targetHeroW.x, targetHeroW.z, 0x38bdf8, 8);
+        }
         lastAdjacentKey = adjKey;
         while (adjacentRingsGroup.children.length > 0) {
           adjacentRingsGroup.remove(adjacentRingsGroup.children[0]);
         }
+        while (pathGuideGroup.children.length > 0) {
+          pathGuideGroup.remove(pathGuideGroup.children[0]);
+        }
+        const phaseGateLookup = new Set((m.phaseGates ?? []).map((g) => `${g.r},${g.c}`));
+        const isTileOpen = (rr: number, cc: number) =>
+          rr >= 0 &&
+          rr < m.rows &&
+          cc >= 0 &&
+          cc < m.cols &&
+          (m.grid[rr][cc] !== 'WALL' || (gatesOpen && phaseGateLookup.has(`${rr},${cc}`)));
+
         const dirs = [
           [-1, 0],
           [1, 0],
@@ -984,22 +1547,211 @@ export const Maze3DViewport: React.FC<Maze3DViewportProps> = ({
         dirs.forEach(([dr, dc]) => {
           const nr = pPos.r + dr;
           const nc = pPos.c + dc;
-          if (
-            nr >= 0 &&
-            nr < m.rows &&
-            nc >= 0 &&
-            nc < m.cols &&
-            m.grid[nr][nc] !== 'WALL'
-          ) {
+          if (isTileOpen(nr, nc)) {
             const rw = gridToWorld(nr, nc, m.rows, m.cols);
             const rMesh = new THREE.Mesh(highlightRingGeo, highlightRingMat);
             rMesh.position.set(rw.x, 0.02, rw.z);
             adjacentRingsGroup.add(rMesh);
           }
         });
+
+        // Priority BFS target: Key 🗝️ (if locked) -> Nearest Star ⭐ -> Exit 🏁
+        const goal =
+          !hasKey && m.keyPos
+            ? m.keyPos
+            : stars.length > 0
+            ? stars.reduce((best, curr) => {
+                const bDist = Math.abs(best.r - pPos.r) + Math.abs(best.c - pPos.c);
+                const cDist = Math.abs(curr.r - pPos.r) + Math.abs(curr.c - pPos.c);
+                return cDist < bDist ? curr : best;
+              }, stars[0])
+            : m.exit;
+
+        const queue: { r: number; c: number; path: { r: number; c: number }[] }[] = [
+          { r: pPos.r, c: pPos.c, path: [] },
+        ];
+        const seen = new Set<string>([`${pPos.r},${pPos.c}`]);
+        let foundPath: { r: number; c: number }[] = [];
+
+        while (queue.length > 0) {
+          const cur = queue.shift()!;
+          if (cur.r === goal.r && cur.c === goal.c) {
+            foundPath = cur.path;
+            break;
+          }
+          for (const [dr, dc] of dirs) {
+            const nr = cur.r + dr;
+            const nc = cur.c + dc;
+            const key = `${nr},${nc}`;
+            if (isTileOpen(nr, nc) && !seen.has(key)) {
+              seen.add(key);
+              queue.push({ r: nr, c: nc, path: [...cur.path, { r: nr, c: nc }] });
+            }
+          }
+        }
+
+        const trimmedPath = foundPath.slice(0, maxWavePoints - 1);
+        currentWaveNodesCount = trimmedPath.length;
+        trimmedPath.forEach((step) => {
+          const sw = gridToWorld(step.r, step.c, m.rows, m.cols);
+          const nodeGroup = new THREE.Group();
+          nodeGroup.position.set(sw.x, 0.02, sw.z);
+
+          const baseRing = new THREE.Mesh(pathRingGeo, pathRingMat);
+          nodeGroup.add(baseRing);
+
+          const crystalNode = new THREE.Mesh(pathNodeGeo, pathNodeMat);
+          crystalNode.position.y = 0.18;
+          crystalNode.name = 'waveCrystal';
+          nodeGroup.add(crystalNode);
+
+          pathGuideGroup.add(nodeGroup);
+        });
       }
 
-      // 2. Smoothly damp Enemies & spin Star crystals
+      // 1.5D Spectral Waveguide Animation: sinusoidal travelling wave along BFS path
+      const isWaveMode = camMode === '1.5d-wave';
+      const waveAmp = isWaveMode ? 0.44 : 0.16;
+      const waveFreq = isWaveMode ? 5.2 : 3.4;
+
+      if (currentWaveNodesCount > 0) {
+        waveguidePositions[0] = heroGroup.position.x;
+        waveguidePositions[1] = 0.35;
+        waveguidePositions[2] = heroGroup.position.z;
+
+        pathGuideGroup.children.forEach((nodeGroup, idx) => {
+          const phase = idx * 0.65 - elapsed * waveFreq;
+          const waveVal = Math.pow(Math.max(0, Math.cos(phase)), 2);
+          const yHeight = 0.14 + waveAmp * waveVal;
+          const crystal = nodeGroup.getObjectByName('waveCrystal');
+          if (crystal) {
+            crystal.position.y = yHeight;
+            crystal.rotation.y = elapsed * 2.5 + idx * 0.4;
+            const s = (isWaveMode ? 0.95 : 0.72) + waveVal * (isWaveMode ? 0.65 : 0.32);
+            crystal.scale.setScalar(s);
+          }
+          const ptIdx = (idx + 1) * 3;
+          if (ptIdx + 2 < waveguidePositions.length) {
+            waveguidePositions[ptIdx] = nodeGroup.position.x;
+            waveguidePositions[ptIdx + 1] = yHeight;
+            waveguidePositions[ptIdx + 2] = nodeGroup.position.z;
+          }
+        });
+        waveguideGeo.attributes.position.needsUpdate = true;
+        waveguideGeo.setDrawRange(0, Math.min(maxWavePoints, currentWaveNodesCount + 1));
+        waveguideLineMat.opacity = isWaveMode ? 0.92 : 0.45;
+      } else {
+        waveguideGeo.setDrawRange(0, 0);
+      }
+
+      // 2.5D Ballistic Particle Physics Step (Zero GC)
+      let anyParticleActive = false;
+      for (let i = 0; i < PARTICLE_COUNT; i++) {
+        if (partLife[i] > 0) {
+          anyParticleActive = true;
+          partLife[i] = Math.max(0, partLife[i] - dt);
+          partVelY[i] -= 15.5 * dt; // Gravity
+          partPosX[i] += partVelX[i] * dt;
+          partPosY[i] += partVelY[i] * dt;
+          partPosZ[i] += partVelZ[i] * dt;
+
+          // Floor bounce at y = 0.08
+          if (partPosY[i] < 0.08) {
+            partPosY[i] = 0.08;
+            partVelY[i] = -partVelY[i] * 0.48;
+            partVelX[i] *= 0.75;
+            partVelZ[i] *= 0.75;
+          }
+
+          const lifeRatio = partLife[i] / Math.max(0.01, partMaxLife[i]);
+          _dummyPos.set(partPosX[i], partPosY[i], partPosZ[i]);
+          _dummyQuat.setFromAxisAngle(_dummyScale.set(0, 1, 0), elapsed * 6 + i);
+          _dummyScale.setScalar(Math.max(0.001, lifeRatio * 1.15));
+          _dummyMat.compose(_dummyPos, _dummyQuat, _dummyScale);
+          particleInstanced.setMatrixAt(i, _dummyMat);
+        } else {
+          _dummyPos.set(0, -10, 0);
+          _dummyScale.setScalar(0.001);
+          _dummyMat.compose(_dummyPos, _dummyQuat, _dummyScale);
+          particleInstanced.setMatrixAt(i, _dummyMat);
+        }
+      }
+      if (anyParticleActive) {
+        particleInstanced.instanceMatrix.needsUpdate = true;
+      }
+
+      // 4.5D Sector Weather Anomaly Particle Drift (Zero GC)
+      const wKey = stateRef.current.sectorWeather ?? 'CLEAR_AETHER';
+      const wMeta = SECTOR_WEATHERS_CATALOG[wKey] ?? SECTOR_WEATHERS_CATALOG.CLEAR_AETHER;
+      weatherMat.color.setHex(wMeta.particleColorHex);
+      for (let w = 0; w < WEATHER_COUNT; w++) {
+        const wyIdx = w * 3 + 1;
+        if (wKey === 'METEOR_EMBER') {
+          weatherPositions[wyIdx] -= dt * 2.1;
+          if (weatherPositions[wyIdx] < 0.2) weatherPositions[wyIdx] = 4.6;
+        } else if (wKey === 'CHRONO_MIST') {
+          weatherPositions[wyIdx] += dt * 0.9;
+          if (weatherPositions[wyIdx] > 4.6) weatherPositions[wyIdx] = 0.3;
+        } else {
+          weatherPositions[wyIdx] = 1.2 + Math.sin(elapsed * 2.2 + w) * 0.85;
+        }
+      }
+      weatherGeo.attributes.position.needsUpdate = true;
+
+      // 3.5D Quantum-Chrono Afterimage Ghosts & Temporal Ribbon
+      const isQuantumMode = camMode === '3.5d-quantum';
+      const recentHist = (histPos ?? []).slice(-MAX_GHOSTS).reverse();
+      chronoRibbonPos[0] = heroGroup.position.x;
+      chronoRibbonPos[1] = 0.48;
+      chronoRibbonPos[2] = heroGroup.position.z;
+      let ribbonCount = 1;
+
+      for (let g = 0; g < MAX_GHOSTS; g++) {
+        const gMesh = ghostMeshes[g];
+        const snapPos = recentHist[g];
+        if (snapPos && (isQuantumMode || g < 2)) {
+          const gw = gridToWorld(snapPos.r, snapPos.c, m.rows, m.cols);
+          gMesh.visible = true;
+          gMesh.position.set(gw.x, Math.sin(elapsed * 4 + g) * 0.06, gw.z);
+          gMesh.rotation.y = -elapsed * 1.8 + g * 0.5;
+          const scaleFactor = isQuantumMode ? 1.0 - g * 0.14 : 0.78 - g * 0.15;
+          gMesh.scale.setScalar(Math.max(0.35, scaleFactor));
+
+          chronoRibbonPos[ribbonCount * 3] = gw.x;
+          chronoRibbonPos[ribbonCount * 3 + 1] = 0.45;
+          chronoRibbonPos[ribbonCount * 3 + 2] = gw.z;
+          ribbonCount++;
+        } else {
+          gMesh.visible = false;
+        }
+      }
+      chronoRibbonGeo.attributes.position.needsUpdate = true;
+      chronoRibbonGeo.setDrawRange(0, ribbonCount > 1 ? ribbonCount : 0);
+
+      // 3.5D Quantum Phase Target Portal (Landing Tile Across Wall for [Q])
+      if (qTarget) {
+        const qw = gridToWorld(qTarget.r, qTarget.c, m.rows, m.cols);
+        quantumTargetGroup.visible = true;
+        quantumTargetGroup.position.set(qw.x, 0, qw.z);
+        qOuterRing.rotation.z = elapsed * 2.4;
+        qInnerRing.rotation.z = -elapsed * 3.2;
+        const pulse = 0.92 + Math.sin(elapsed * 5) * 0.12;
+        qOuterRing.scale.setScalar(pulse);
+        qPillarMat.opacity = isQuantumMode ? 0.34 : 0.18;
+      } else {
+        quantumTargetGroup.visible = false;
+      }
+
+      // 3.5D Astral Key/Exit Beacon Pillar
+      if ((isQuantumMode || isWaveMode) && (!hasKey && m.keyPos)) {
+        const kw = gridToWorld(m.keyPos.r, m.keyPos.c, m.rows, m.cols);
+        astralKeyBeacon.visible = true;
+        astralKeyBeacon.position.set(kw.x, 2.1, kw.z);
+        astralKeyBeacon.rotation.y = elapsed * 1.5;
+      } else {
+        astralKeyBeacon.visible = false;
+      }
+
       collectiblesGroup.children.forEach((cGroup) => {
         const crystal = cGroup.getObjectByName('spinCrystal');
         if (crystal) {
@@ -1027,9 +1779,22 @@ export const Maze3DViewport: React.FC<Maze3DViewportProps> = ({
         }
       });
 
-      // 3. Camera Choreography (Chase Cam vs Tactical Diorama Overview)
+      // Smoothly interpolate Camera FOV & Projection Position for 1.5D / 2.5D / 3.0D / 3.5D modes
+      const targetFov =
+        camMode === '2.5d-diorama'
+          ? 28
+          : camMode === '1.5d-wave'
+          ? 42
+          : camMode === '3.5d-quantum'
+          ? 54
+          : 46;
+      if (Math.abs(camera.fov - targetFov) > 0.05) {
+        camera.fov = THREE.MathUtils.damp(camera.fov, targetFov, 6, dt);
+        camera.updateProjectionMatrix();
+      }
+
       const shakeOffset = shake ? Math.sin(elapsed * 60) * 0.35 : 0;
-      if (camMode === 'chase') {
+      if (camMode === '3d-chase') {
         _targetCamPos.set(
           heroGroup.position.x + shakeOffset,
           11.5,
@@ -1040,11 +1805,30 @@ export const Maze3DViewport: React.FC<Maze3DViewportProps> = ({
           0.5,
           heroGroup.position.z - 0.8
         );
-      } else {
-        // Full 3D Diorama view of the entire labyrinth
+      } else if (camMode === '3.5d-quantum') {
+        _targetCamPos.set(
+          heroGroup.position.x + Math.sin(elapsed * 0.6) * 1.4 + shakeOffset,
+          13.2,
+          heroGroup.position.z + 10.4
+        );
+        _targetLookAt.set(
+          heroGroup.position.x,
+          0.4,
+          heroGroup.position.z - 0.5
+        );
+      } else if (camMode === '1.5d-wave') {
         const span = Math.max(m.rows, m.cols) * TILE_SIZE;
-        _targetCamPos.set(shakeOffset, span * 1.28, span * 0.76);
-        _targetLookAt.set(0, -0.6, 1.4);
+        _targetCamPos.set(
+          heroGroup.position.x * 0.45 + shakeOffset,
+          span * 0.92,
+          heroGroup.position.z * 0.45 + span * 0.52
+        );
+        _targetLookAt.set(heroGroup.position.x * 0.35, 0, heroGroup.position.z * 0.35);
+      } else {
+        // '2.5d-diorama' HD-2D Tilt-Shift Isometric Projection (FOV 28°)
+        const span = Math.max(m.rows, m.cols) * TILE_SIZE;
+        _targetCamPos.set(shakeOffset, span * 1.72, span * 1.05);
+        _targetLookAt.set(0, -0.5, 0.8);
       }
 
       camera.position.x = THREE.MathUtils.damp(camera.position.x, _targetCamPos.x, 7, dt);

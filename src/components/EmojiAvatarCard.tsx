@@ -126,7 +126,34 @@ export const EmojiAvatarCard: React.FC<EmojiAvatarCardProps> = ({
           />
         </div>
 
-        {/* LAYER 2: Base Hero Emoji Character (Center Popout) */}
+        {/* LAYER 1.5 (2.5D Stratified Intermediate Spark Plane at Z=14px) */}
+        <div
+          style={{
+            transform: `translate3d(${(-totalRotY * 0.65).toFixed(1)}px, ${(totalRotX * 0.65).toFixed(1)}px, 14px)`,
+          }}
+          className="absolute inset-0 pointer-events-none"
+        >
+          <span
+            style={{ fontSize: `${Math.max(10, Math.round(sizePx * 0.1))}px`, top: '16%', left: '16%' }}
+            className="absolute opacity-75 drop-shadow"
+          >
+            ✦
+          </span>
+          <span
+            style={{ fontSize: `${Math.max(9, Math.round(sizePx * 0.085))}px`, bottom: '28%', right: '14%' }}
+            className="absolute opacity-70 drop-shadow"
+          >
+            ✧
+          </span>
+          <span
+            style={{ fontSize: `${Math.max(8, Math.round(sizePx * 0.075))}px`, top: '62%', left: '20%' }}
+            className="absolute opacity-60"
+          >
+            ⋆
+          </span>
+        </div>
+
+        {/* LAYER 2: Base Hero Emoji Character (Center Popout at Z=24px) */}
         <div
           style={{
             transform: `translate3d(${(totalRotY * 0.55).toFixed(1)}px, ${(-totalRotX * 0.55 - 4).toFixed(1)}px, 24px)`,

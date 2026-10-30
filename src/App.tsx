@@ -1,31 +1,57 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
+  ALCHEMICAL_POTIONS_CATALOG,
+  AlchemicalPotionId,
+  BiomeKey,
+  BIOMES,
   BOSS_ROSTER,
+  BountyContract,
   calculateHeroStats,
+  castCorridorShockwave,
+  computeQuantumPhaseTarget,
+  computeRunMasteryGrade,
+  computeTargetCompass,
   DIFFICULTIES,
   DifficultyKey,
+  DimensionalMode,
+  DIMENSIONAL_MODE_META,
   ELEMENTAL_SPELLS,
+  evaluateGlyphSynergy,
+  evaluateRoyalRank,
+  evaluateTerrainCombatBuff,
+  FamiliarId,
+  FAMILIARS_CATALOG,
   generateMaze,
+  generateNextTierBounty,
+  GUILD_ORDERS_CATALOG,
+  GuildOrderId,
   HeroAvatar,
+  INITIAL_BOUNTY_CONTRACTS,
   INITIAL_HERO_ROSTER,
   isWalkableTile,
   MazeData,
   MazeEnemy,
   Position,
   purchaseSkinTransaction,
+  ROGUELIKE_PERKS_POOL,
+  RoguelikePerk,
   ROLE_METADATA,
+  SECTOR_WEATHERS_CATALOG,
+  SectorWeatherKey,
   ShopSkin,
   stepEnemies,
+  TAROT_CARDS_CATALOG,
+  TarotCardId,
 } from './game/rules';
 import { soundFX } from './game/sound';
 import { EmojiAvatarCard } from './components/EmojiAvatarCard';
 import { AvatarStudioModal } from './components/AvatarStudioModal';
 import { ArenaBattleModal } from './components/ArenaBattleModal';
 import { SynergyCodexModal } from './components/SynergyCodexModal';
-import { Maze3DViewport } from './components/Maze3DViewport';
+import { Maze3DViewport, VfxBurstPayload } from './components/Maze3DViewport';
+import { CartographerMinimap } from './components/CartographerMinimap';
 
 type ShellState = 'title' | 'playing' | 'paused' | 'gameover';
-type ViewProjectionMode = '3d-chase' | '3d-diorama' | '2d-classic';
 
 interface RunSummary {
   victory: boolean;
@@ -35,6 +61,13 @@ interface RunSummary {
   enemiesDefeated: number;
   coinsEarned: number;
   clearTimeSec: number;
+}
+
+interface ChronoSnapshot {
+  playerPos: Position;
+  enemies: MazeEnemy[];
+  playerHp: number;
+  starEnergy: number;
 }
 
 const STORAGE_KEY = 'emoji_universe_save_v1';
@@ -83,16 +116,92 @@ export default function App() {
     return INITIAL_HERO_ROSTER[0].id;
   });
 
+  const [activeFamiliarId, setActiveFamiliarId] = useState<FamiliarId>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved && JSON.parse(saved).activeFamiliarId) return JSON.parse(saved).activeFamiliarId;
+    } catch {}
+    return 'owl';
+  });
+
+  const [bountiesCompletedCount, setBountiesCompletedCount] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) return JSON.parse(saved).bountiesCompletedCount ?? 0;
+    } catch {}
+    return 0;
+  });
+
+  const [bestiaryKills, setBestiaryKills] = useState<Record<string, number>>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved && JSON.parse(saved).bestiaryKills) return JSON.parse(saved).bestiaryKills;
+    } catch {}
+    return {};
+  });
+
+  const [activeTarotId, setActiveTarotId] = useState<TarotCardId>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved && JSON.parse(saved).activeTarotId) return JSON.parse(saved).activeTarotId;
+    } catch {}
+    return 'wheel-of-fortune';
+  });
+
+  const [activeGuildId, setActiveGuildId] = useState<GuildOrderId>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved && JSON.parse(saved).activeGuildId) return JSON.parse(saved).activeGuildId;
+    } catch {}
+    return 'ORDER_TEMPLARS';
+  });
+
+  const activeTarot =
+    TAROT_CARDS_CATALOG.find((t) => t.id === activeTarotId) ?? TAROT_CARDS_CATALOG[0];
+
+  const activeGuild =
+    GUILD_ORDERS_CATALOG.find((g) => g.id === activeGuildId) ?? GUILD_ORDERS_CATALOG[0];
+
   const activeHero =
     savedHeroes.find((h) => h.id === activeHeroId) || savedHeroes[0] || INITIAL_HERO_ROSTER[0];
 
-  // Settings & Game State
+  const activeFamiliar =
+    FAMILIARS_CATALOG[activeFamiliarId] ?? FAMILIARS_CATALOG.owl;
+
+  const royalRank = evaluateRoyalRank(bountiesCompletedCount, highLevel, activeHero.wins);
+  const tarotGoldMult = 1 + activeTarot.goldBonusPct / 100;
+  const guildGoldMult = 1 + activeGuild.goldBonusPct / 100;
+  const royalGoldMultiplier =
+    (1 + royalRank.goldBonusPercent / 100) * tarotGoldMult * guildGoldMult;
+
+  const activeSynergy = evaluateGlyphSynergy(
+    activeHero.characterRole,
+    activeHero.baseEmoji,
+    activeHero.accessoryEmoji,
+    activeHero.flagEmoji,
+    activeHero.backgroundStyle
+  );
+
+  // Settings, Biomes, 4.5D Weather, Roguelike Perks, Potion Belt & Bounties
   const [difficulty, setDifficulty] = useState<DifficultyKey>('EASY');
+  const [biomeKey, setBiomeKey] = useState<BiomeKey>('CYBER_NEON');
+  const [sectorWeather, setSectorWeather] = useState<SectorWeatherKey>('CLEAR_AETHER');
   const [scanlinesEnabled, setScanlinesEnabled] = useState<boolean>(false);
   const [enemiesEnabled, setEnemiesEnabled] = useState<boolean>(true);
   const [muted, setMuted] = useState<boolean>(false);
-  const [viewMode, setViewMode] = useState<ViewProjectionMode>('3d-chase');
+  const [viewMode, setViewMode] = useState<DimensionalMode>('3d-chase');
   const [dockCollapsed, setDockCollapsed] = useState<boolean>(false);
+  const [vfxBurst, setVfxBurst] = useState<VfxBurstPayload | null>(null);
+  const [merchantOpen, setMerchantOpen] = useState<boolean>(false);
+  const [potionBelt, setPotionBelt] = useState<Record<AlchemicalPotionId, number>>({
+    'elixir-phoenix': 1,
+    'ether-stargazer': 1,
+    'oil-basilisk': 1,
+  });
+
+  const [activePerks, setActivePerks] = useState<string[]>([]);
+  const [selectedPerkOnVictory, setSelectedPerkOnVictory] = useState<string | null>(null);
+  const [bounties, setBounties] = useState<BountyContract[]>(INITIAL_BOUNTY_CONTRACTS);
 
   const [shellState, setShellState] = useState<ShellState>(() => {
     if (typeof window !== 'undefined') {
@@ -109,8 +218,14 @@ export default function App() {
   });
 
   const [playerPos, setPlayerPos] = useState<Position>({ r: 1, c: 1 });
+  const [lastMoveDir, setLastMoveDir] = useState<{ dr: number; dc: number }>({ dr: 0, dc: 1 });
   const [starsRemaining, setStarsRemaining] = useState<Position[]>(() => maze.stars);
   const [chestsRemaining, setChestsRemaining] = useState<Position[]>(() => maze.chests);
+  const [shrinesRemaining, setShrinesRemaining] = useState<Position[]>(() => maze.shrines);
+  const [keyCollected, setKeyCollected] = useState<boolean>(false);
+  const [phaseGatesOpen, setPhaseGatesOpen] = useState<boolean>(false);
+  const [enemyFrozenTurns, setEnemyFrozenTurns] = useState<number>(0);
+  const [quantumCharges, setQuantumCharges] = useState<number>(1);
   const [enemies, setEnemies] = useState<MazeEnemy[]>(() => maze.enemies);
   const [playerHp, setPlayerHp] = useState<number>(activeHero.hp);
   const [trailingHp, setTrailingHp] = useState<number>(activeHero.hp);
@@ -118,20 +233,42 @@ export default function App() {
   const [starsCollectedRun, setStarsCollectedRun] = useState<number>(0);
   const [enemiesDefeatedRun, setEnemiesDefeatedRun] = useState<number>(0);
   const [coinsEarnedRun, setCoinsEarnedRun] = useState<number>(0);
+  const [streakCount, setStreakCount] = useState<number>(0);
+  const [historyStack, setHistoryStack] = useState<ChronoSnapshot[]>([]);
+  const [exploredTiles, setExploredTiles] = useState<Set<string>>(
+    () => new Set(['0,0', '0,1', '0,2', '1,0', '1,1', '1,2', '2,0', '2,1', '2,2'])
+  );
+
   const [actionLogMessage, setActionLogMessage] = useState<string>(
-    '3D-Лабиринт: соберите ⭐ и сундуки 🎁, сразите стражей 👾 и дойдите до 3D-врат 🏁!'
+    '3D-Лабиринт: найдите ключ 🗝️, соберите ⭐ и сундуки 🎁, используйте порталы 🌀 и отворите врата 🏁!'
   );
   const [boardShake, setBoardShake] = useState<boolean>(false);
 
+  const emitVfxBurst = useCallback((r: number, c: number, colorHex: number) => {
+    setVfxBurst({
+      id: Date.now() + Math.random(),
+      r,
+      c,
+      colorHex,
+    });
+  }, []);
+
+  const quantumPhaseOption = computeQuantumPhaseTarget(
+    maze,
+    playerPos,
+    lastMoveDir,
+    quantumCharges
+  );
+
   // Modals
   const [studioOpen, setStudioOpen] = useState<boolean>(false);
-  const [studioInitialTab, setStudioInitialTab] = useState<'builder' | 'gallery' | 'shop'>('builder');
+  const [studioInitialTab, setStudioInitialTab] = useState<'builder' | 'gallery' | 'shop' | 'forge'>('builder');
   const [codexOpen, setCodexOpen] = useState<boolean>(false);
   const [activeArenaEnemy, setActiveArenaEnemy] = useState<MazeEnemy | null>(null);
   const [runSummary, setRunSummary] = useState<RunSummary | null>(null);
 
   const runStartTimeRef = useRef<number>(Date.now());
-  const spawnGraceUntilRef = useRef<number>(Date.now() + 2500);
+  const spawnGraceUntilRef = useRef<number>(Date.now() + 3000);
 
   // Persist save state
   useEffect(() => {
@@ -144,10 +281,26 @@ export default function App() {
           unlockedSkins,
           savedHeroes,
           activeHeroId,
+          activeFamiliarId,
+          bountiesCompletedCount,
+          bestiaryKills,
+          activeTarotId,
+          activeGuildId,
         })
       );
     } catch {}
-  }, [coins, highLevel, unlockedSkins, savedHeroes, activeHeroId]);
+  }, [
+    coins,
+    highLevel,
+    unlockedSkins,
+    savedHeroes,
+    activeHeroId,
+    activeFamiliarId,
+    bountiesCompletedCount,
+    bestiaryKills,
+    activeTarotId,
+    activeGuildId,
+  ]);
 
   useEffect(() => {
     document.body.dataset.state = shellState;
@@ -160,10 +313,50 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [playerHp]);
 
+  const revealFogAround = useCallback(
+    (pos: Position) => {
+      const radius = activeFamiliarId === 'owl' ? 2 : 1;
+      setExploredTiles((prev) => {
+        const next = new Set(prev);
+        for (let dr = -radius; dr <= radius; dr++) {
+          for (let dc = -radius; dc <= radius; dc++) {
+            next.add(`${pos.r + dr},${pos.c + dc}`);
+          }
+        }
+        return next;
+      });
+    },
+    [activeFamiliarId]
+  );
+
   const triggerShake = () => {
     setBoardShake(true);
     setTimeout(() => setBoardShake(false), 220);
   };
+
+  // Infinite Royal Bounties: when completed, award gold, increment nobility counter, and issue next tier!
+  const progressBounty = useCallback(
+    (type: BountyContract['targetType'], amount: number = 1) => {
+      setBounties((prev) =>
+        prev.map((b) => {
+          if (b.targetType !== type) return b;
+          const nextProg = Math.min(b.targetCount, b.progress + amount);
+          const nowDone = nextProg >= b.targetCount;
+          if (nowDone) {
+            setCoins((c) => c + b.rewardCoins);
+            setCoinsEarnedRun((c) => c + b.rewardCoins);
+            setBountiesCompletedCount((cnt) => cnt + 1);
+            return generateNextTierBounty(b);
+          }
+          return {
+            ...b,
+            progress: nextProg,
+          };
+        })
+      );
+    },
+    []
+  );
 
   const startMazeRun = useCallback(
     (targetLevel: number = level, diffKey: DifficultyKey = difficulty) => {
@@ -176,39 +369,183 @@ export default function App() {
         targetLevel
       );
 
+      const biomeOrder: BiomeKey[] = [
+        'CYBER_NEON',
+        'MEDIEVAL_CITADEL',
+        'SUNKEN_ATLANTIS',
+        'SOLAR_SUPERNOVA',
+      ];
+      const weatherOrder: SectorWeatherKey[] = [
+        'CLEAR_AETHER',
+        'METEOR_EMBER',
+        'CHRONO_MIST',
+        'ASTRAL_STORM',
+      ];
+      if (targetLevel > 1) {
+        setBiomeKey(biomeOrder[(targetLevel - 1) % biomeOrder.length]);
+        setSectorWeather(weatherOrder[(targetLevel - 1) % weatherOrder.length]);
+      }
+
+      const bonusHpFromPerk = activePerks.includes('perk-titan-heart') ? 25 : 0;
+      const startHp = activeHero.hp + bonusHpFromPerk + activeGuild.bonusHp;
+      const startQuantum =
+        (activeSynergy.passiveKey === 'PHASE_WALK' ? 2 : 1) + activeGuild.bonusStartQuantum;
+
       setMaze(nextMaze);
       setPlayerPos({ r: 1, c: 1 });
+      setLastMoveDir({ dr: 0, dc: 1 });
       setStarsRemaining(nextMaze.stars);
       setChestsRemaining(nextMaze.chests);
+      setShrinesRemaining(nextMaze.shrines);
+      setKeyCollected(false);
+      setPhaseGatesOpen(activeTarot.autoOpenPhaseGates);
+      setEnemyFrozenTurns(0);
+      setMerchantOpen(false);
+      setQuantumCharges(startQuantum);
       setEnemies(nextMaze.enemies);
-      setPlayerHp(activeHero.hp);
-      setTrailingHp(activeHero.hp);
-      setStarEnergy(2);
+      setPlayerHp(startHp);
+      setTrailingHp(startHp);
+      setStarEnergy(Math.min(5, 2 + activeTarot.bonusStartMana));
       setStarsCollectedRun(0);
       setEnemiesDefeatedRun(0);
       setCoinsEarnedRun(0);
+      setStreakCount(0);
+      setHistoryStack([]);
+      setExploredTiles(new Set(['0,0', '0,1', '0,2', '1,0', '1,1', '1,2', '2,0', '2,1', '2,2']));
       setActiveArenaEnemy(null);
       setRunSummary(null);
+      setSelectedPerkOnVictory(null);
       setActionLogMessage(
-        `Сектор #${targetLevel} (3D): соберите ${nextMaze.stars.length} ⭐ и найдите 3D-арку выхода 🏁!`
+        `Сектор #${targetLevel} [${activeGuild.emoji} ${activeGuild.titleRu} · ${SECTOR_WEATHERS_CATALOG[sectorWeather].badgeRu}]: в путь!`
       );
       runStartTimeRef.current = Date.now();
-      spawnGraceUntilRef.current = Date.now() + 2500;
+      spawnGraceUntilRef.current = Date.now() + 3000;
       setShellState('playing');
       if (document.activeElement instanceof HTMLElement) {
         document.activeElement.blur();
       }
     },
-    [level, difficulty, enemiesEnabled, activeHero.hp]
+    [
+      level,
+      difficulty,
+      enemiesEnabled,
+      activeHero.hp,
+      activePerks,
+      activeSynergy.passiveKey,
+      activeTarot,
+      activeGuild,
+      sectorWeather,
+    ]
+  );
+
+  const handleChronoRewind = useCallback(() => {
+    if (shellState !== 'playing' || historyStack.length === 0) return;
+    const lastSnap = historyStack[historyStack.length - 1];
+    const mistBonus = SECTOR_WEATHERS_CATALOG[sectorWeather].rewindHealBonus;
+    setHistoryStack((prev) => prev.slice(0, -1));
+    setPlayerPos(lastSnap.playerPos);
+    setEnemies(lastSnap.enemies);
+    setPlayerHp(Math.min(activeHero.hp + 45, lastSnap.playerHp + mistBonus));
+    setStarEnergy(
+      Math.min(5, lastSnap.starEnergy + (sectorWeather === 'CHRONO_MIST' ? 1 : 0))
+    );
+    soundFX.playSpell();
+    triggerShake();
+    emitVfxBurst(lastSnap.playerPos.r, lastSnap.playerPos.c, 0x22d3ee);
+    spawnGraceUntilRef.current = Date.now() + 1800;
+    setActionLogMessage(
+      mistBonus > 0
+        ? `⏳ 3.5D Хроно-Отмотка [Z] в Хроно-Тумане: время вспять (+${mistBonus} ОЗ, +1 ⚡)!`
+        : '⏳ 3.5D Хроно-Отмотка [Z]: время обращено вспять по шлейфу фантома!'
+    );
+  }, [shellState, historyStack, sectorWeather, activeHero.hp, emitVfxBurst]);
+
+  // Medieval Alchemist's Potion Belt [1] [2] [3] (Use or Brew on the fly!)
+  const handleUseOrBrewPotion = useCallback(
+    (potionId: AlchemicalPotionId) => {
+      if (shellState !== 'playing' || activeArenaEnemy || studioOpen || codexOpen) return;
+      const meta = ALCHEMICAL_POTIONS_CATALOG.find((p) => p.id === potionId)!;
+      const charges = potionBelt[potionId] ?? 0;
+
+      if (charges <= 0) {
+        if (coins < meta.refillCost) {
+          setActionLogMessage(
+            `🧪 Нет зарядов «${meta.titleRu}»! Для алхимической варки нужно ${meta.refillCost} 🪙.`
+          );
+          return;
+        }
+        setCoins((c) => c - meta.refillCost);
+        setPotionBelt((prev) => ({ ...prev, [potionId]: (prev[potionId] ?? 0) + 1 }));
+        soundFX.playStarCollect();
+        setActionLogMessage(
+          `⚗️ Сварен эликсир «${meta.titleRu}» (+1 заряд за ${meta.refillCost} 🪙)! Нажмите [${meta.hotkey}] ещё раз для приёма.`
+        );
+        return;
+      }
+
+      setPotionBelt((prev) => ({ ...prev, [potionId]: Math.max(0, (prev[potionId] ?? 1) - 1) }));
+      const mult = activeGuild.potionPowerMult;
+
+      if (potionId === 'elixir-phoenix') {
+        const healAmt = Math.round(45 * mult);
+        soundFX.playHeal();
+        emitVfxBurst(playerPos.r, playerPos.c, 0x10b981);
+        setPlayerHp((hp) => Math.min(activeHero.hp + 45, hp + healAmt));
+        setActionLogMessage(`🧪 Выпит Эликсир Феникса [1]: мгновенно восстановлено +${healAmt} ОЗ!`);
+      } else if (potionId === 'ether-stargazer') {
+        const manaGain = Math.round(3 * mult);
+        soundFX.playSpell();
+        emitVfxBurst(playerPos.r, playerPos.c, 0x38bdf8);
+        setStarEnergy((e) => Math.min(5, e + manaGain));
+        setQuantumCharges((q) => q + 1);
+        setActionLogMessage(
+          `⚗️ Выпит Эфир Звездочёта [2]: +${manaGain} ⚡ маны и +1 заряд Квантового Сдвига [Q]!`
+        );
+      } else if (potionId === 'oil-basilisk') {
+        const freezeTurns = Math.round(4 * mult);
+        soundFX.playSpell();
+        triggerShake();
+        emitVfxBurst(playerPos.r, playerPos.c, 0xa855f7);
+        setEnemyFrozenTurns(freezeTurns);
+        setPhaseGatesOpen(true);
+        setActionLogMessage(
+          `🏺 Масло Василиска [3]: стражи обращены в камень на ${freezeTurns} такта ❄️, а 4D-Заслонки 🟪 открыты!`
+        );
+      }
+    },
+    [
+      shellState,
+      activeArenaEnemy,
+      studioOpen,
+      codexOpen,
+      potionBelt,
+      coins,
+      activeGuild.potionPowerMult,
+      playerPos,
+      activeHero.hp,
+      emitVfxBurst,
+    ]
   );
 
   const handleCompleteLevel = useCallback(
     (finalStarsCollected: number, totalStarsCount: number, currentCoinsEarned: number) => {
       soundFX.playVictory();
-      const allStarsBonus = finalStarsCollected >= totalStarsCount ? 30 : 15;
+      const elapsedSec = Math.max(1, Math.round((Date.now() - runStartTimeRef.current) / 1000));
+      const mastery = computeRunMasteryGrade(
+        finalStarsCollected,
+        totalStarsCount,
+        elapsedSec,
+        enemiesDefeatedRun,
+        true
+      );
+      const midasMultiplier = activePerks.includes('perk-midas-touch') ? 1.6 : 1.0;
+      const allStarsBonus = Math.round(
+        ((finalStarsCollected >= totalStarsCount ? 30 : 15) + mastery.bonusCoins) *
+          midasMultiplier *
+          royalGoldMultiplier
+      );
       const totalRunCoins = currentCoinsEarned + allStarsBonus;
       const nextLevel = level + 1;
-      const elapsedSec = Math.max(1, Math.round((Date.now() - runStartTimeRef.current) / 1000));
 
       setCoins((c) => c + allStarsBonus);
       setHighLevel((h) => Math.max(h, nextLevel));
@@ -228,11 +565,11 @@ export default function App() {
       });
       setShellState('gameover');
     },
-    [level, enemiesDefeatedRun, activeHero.id]
+    [level, enemiesDefeatedRun, activeHero.id, activePerks, royalGoldMultiplier]
   );
 
   const movePlayer = useCallback(
-    (dr: number, dc: number) => {
+    (dr: number, dc: number, allowPhaseThroughWall: boolean = false) => {
       if (
         shellState !== 'playing' ||
         activeArenaEnemy !== null ||
@@ -242,20 +579,144 @@ export default function App() {
         return;
       }
 
-      const nr = playerPos.r + dr;
-      const nc = playerPos.c + dc;
+      setLastMoveDir({ dr, dc });
+      let nr = playerPos.r + dr;
+      let nc = playerPos.c + dc;
 
-      if (!isWalkableTile(maze, nr, nc)) {
-        setActionLogMessage('3D-стена лабиринта! Выберите открытый проход.');
-        return;
+      const blockedByPhaseGate =
+        !phaseGatesOpen && maze.phaseGates.some((g) => g.r === nr && g.c === nc);
+
+      if (!isWalkableTile(maze, nr, nc, phaseGatesOpen)) {
+        const qHit = allowPhaseThroughWall
+          ? computeQuantumPhaseTarget(maze, playerPos, { dr, dc }, quantumCharges)
+          : null;
+        if (qHit) {
+          nr = qHit.target.r;
+          nc = qHit.target.c;
+          setLastMoveDir(qHit.dir);
+          setQuantumCharges((q) => Math.max(0, q - 1));
+          soundFX.playSpell();
+          triggerShake();
+          emitVfxBurst(nr, nc, 0xe879f9);
+          setActionLogMessage('📐 3.5D Квантовый Фазовый Прыжок сквозь стену лабиринта!');
+        } else {
+          setStreakCount(0);
+          setActionLogMessage(
+            blockedByPhaseGate
+              ? '🟪 4D-Фазовая Заслонка закрыта! Нажмите Рычаг Архитектора 🎚️ или пульс [E].'
+              : '3D-стена лабиринта! Выберите проход или используйте [Q] Квантовый Сдвиг.'
+          );
+          return;
+        }
+      } else if (allowPhaseThroughWall && quantumCharges > 0) {
+        // Even if facing an open tile, if player pressed [Q] and an adjacent wall has a quantum portal, jump through it!
+        const qHit = computeQuantumPhaseTarget(maze, playerPos, { dr, dc }, quantumCharges);
+        if (qHit) {
+          nr = qHit.target.r;
+          nc = qHit.target.c;
+          setLastMoveDir(qHit.dir);
+          setQuantumCharges((q) => Math.max(0, q - 1));
+          soundFX.playSpell();
+          triggerShake();
+          emitVfxBurst(nr, nc, 0xe879f9);
+          setActionLogMessage('📐 3.5D Квантовый Фазовый Прыжок в портал сквозь стену!');
+        }
       }
 
-      soundFX.playStep();
-      const nextPos = { r: nr, c: nc };
-      setPlayerPos(nextPos);
+      // Push snapshot into Chrono-Rewind ring buffer (max 5 turns)
+      setHistoryStack((prev) => [
+        ...prev.slice(-4),
+        {
+          playerPos: { ...playerPos },
+          enemies: enemies.map((e) => ({ ...e, patrolDir: { ...e.patrolDir } })),
+          playerHp,
+          starEnergy,
+        },
+      ]);
 
-      // 1. Check Star collection
-      const hitStarIndex = starsRemaining.findIndex((s) => s.r === nr && s.c === nc);
+      soundFX.playStep();
+      let finalPos = { r: nr, c: nc };
+      const nextStreak = streakCount + 1;
+      setStreakCount(nextStreak);
+
+      // 0. Check Quantum Portal Teleportation 🌀 (A <-> B)
+      if (maze.portals) {
+        const hitA = nr === maze.portals.a.r && nc === maze.portals.a.c;
+        const hitB = nr === maze.portals.b.r && nc === maze.portals.b.c;
+        if (hitA || hitB) {
+          finalPos = hitA ? { ...maze.portals.b } : { ...maze.portals.a };
+          soundFX.playSpell();
+          triggerShake();
+          progressBounty('SHRINE_OR_PORTAL', 1);
+          if (activePerks.includes('perk-shadow-cloak')) {
+            setPlayerHp((hp) => Math.min(activeHero.hp + 25, hp + 15));
+            setStarEnergy((e) => Math.min(5, e + 2));
+          }
+          setActionLogMessage(
+            `🌀 Квантовый Телепорт! Вы мгновенно переместились в точку (${finalPos.r}, ${finalPos.c})!`
+          );
+        }
+      }
+
+      setPlayerPos(finalPos);
+      revealFogAround(finalPos);
+      const curR = finalPos.r;
+      const curC = finalPos.c;
+
+      const streakMult = Math.min(2.5, 1 + Math.floor(nextStreak / 3) * 0.25);
+      // 4.5D Astral Storm passive: every 3 steps grants +1 ⚡ mana
+      if (sectorWeather === 'ASTRAL_STORM' && nextStreak % 3 === 0) {
+        setStarEnergy((e) => Math.min(5, e + 1));
+      }
+      const familiarBonusCoin = activeFamiliar.id === 'dragonling' ? 4 : 0;
+      const weatherStarBonus = sectorWeather === 'METEOR_EMBER' ? 4 : 0;
+      const goldMultiplier =
+        (activeSynergy.passiveKey === 'DOUBLE_STAR_GOLD' ? 2 : 1) *
+        (activePerks.includes('perk-midas-touch') ? 1.6 : 1) *
+        royalGoldMultiplier *
+        streakMult;
+
+      // 0b. Check Architect's Lever 🎚️ (toggles 4.0D Phase Gates 🟪)
+      if (maze.leverPos && curR === maze.leverPos.r && curC === maze.leverPos.c) {
+        soundFX.playSpell();
+        triggerShake();
+        emitVfxBurst(curR, curC, 0xa855f7);
+        progressBounty('SHRINE_OR_PORTAL', 1);
+        setPhaseGatesOpen((prev) => {
+          const next = !prev;
+          setActionLogMessage(
+            next
+              ? '🎚️ Рычаг Архитектора активирован! 4D-Фазовые Заслонки 🟪 ушли в пол — короткие пути открыты!'
+              : '🎚️ Рычаг Архитектора переключён! 4D-Фазовые Заслонки 🟪 снова поднялись!'
+          );
+          return next;
+        });
+      }
+
+      // 0c. Check Wandering Caravan Merchant 🐪
+      if (maze.merchantPos && curR === maze.merchantPos.r && curC === maze.merchantPos.c) {
+        soundFX.playStarCollect();
+        emitVfxBurst(curR, curC, 0xfbbf24);
+        setMerchantOpen(true);
+        setActionLogMessage(
+          '🐪 Караван Алхимика Аль-Кеми: обменяйте монеты 🪙 на ключ 🗝️, эликсиры 🧪 или закалку клинка!'
+        );
+      }
+
+      // 1. Check Golden Key 🗝️ collection
+      let hasKeyNow = keyCollected;
+      if (!keyCollected && maze.keyPos && curR === maze.keyPos.r && curC === maze.keyPos.c) {
+        hasKeyNow = true;
+        setKeyCollected(true);
+        soundFX.playStarCollect();
+        triggerShake();
+        emitVfxBurst(curR, curC, 0xfde047);
+        progressBounty('SHRINE_OR_PORTAL', 1);
+        setActionLogMessage('🗝️ Найден Золотой Ключ Цитадели! Решётка 3D-врат выхода 🏁 открыта!');
+      }
+
+      // 2. Check Star ⭐ collection
+      const hitStarIndex = starsRemaining.findIndex((s) => s.r === curR && s.c === curC);
       let updatedStarsCollected = starsCollectedRun;
       let updatedCoinsEarned = coinsEarnedRun;
 
@@ -264,43 +725,116 @@ export default function App() {
         const nextStars = starsRemaining.filter((_, idx) => idx !== hitStarIndex);
         setStarsRemaining(nextStars);
         updatedStarsCollected += 1;
-        updatedCoinsEarned += 5;
+        const starGold = Math.round(5 * goldMultiplier) + familiarBonusCoin + weatherStarBonus;
+        updatedCoinsEarned += starGold;
         setStarsCollectedRun(updatedStarsCollected);
         setCoinsEarnedRun(updatedCoinsEarned);
-        setCoins((c) => c + 5);
+        setCoins((c) => c + starGold);
         setStarEnergy((e) => Math.min(5, e + 1));
-        setPlayerHp((hp) => Math.min(activeHero.hp, hp + 6));
+        const starHealExtra = activeTarot.id === 'the-star' ? 14 : 0;
+        setPlayerHp((hp) => Math.min(activeHero.hp + 45, hp + 8 + starHealExtra));
+        if (activeTarot.id === 'the-star') {
+          setQuantumCharges((q) => q + 1);
+        }
         triggerShake();
+        emitVfxBurst(curR, curC, 0xfbbf24);
+        progressBounty('STARS', 1);
         setActionLogMessage(
-          `Собрана 3D-звезда ⭐ (+5 🪙, +1 ⚡ заряд магии, +6 ОЗ)! Звёзд: ${updatedStarsCollected}/${maze.stars.length}`
+          `Собрана 3D-звезда ⭐ (+${starGold} 🪙 [Стрик ×${streakMult.toFixed(2)}], +1 ⚡)! Звёзд: ${updatedStarsCollected}/${maze.stars.length}`
         );
       }
 
-      // 2. Check Treasure Chest collection
-      const hitChestIndex = chestsRemaining.findIndex((c) => c.r === nr && c.c === nc);
+      // 3. Check Treasure Chest 🎁 (or Medieval Mimic Surprise!)
+      const hitChestIndex = chestsRemaining.findIndex((c) => c.r === curR && c.c === curC);
       if (hitChestIndex !== -1) {
-        soundFX.playStarCollect();
         const nextChests = chestsRemaining.filter((_, idx) => idx !== hitChestIndex);
         setChestsRemaining(nextChests);
-        updatedCoinsEarned += 15;
-        setCoinsEarnedRun(updatedCoinsEarned);
-        setCoins((c) => c + 15);
-        setStarEnergy((e) => Math.min(5, e + 2));
-        setPlayerHp((hp) => Math.min(activeHero.hp, hp + 15));
         triggerShake();
-        setActionLogMessage('Открыт 3D-сундук сокровищ 🎁 (+15 🪙, +2 ⚡ магии, +15 ОЗ)!');
+        emitVfxBurst(curR, curC, 0xf59e0b);
+
+        if (hitChestIndex === 1 && enemiesEnabled) {
+          soundFX.playHurt();
+          const mimicEnemy: MazeEnemy = {
+            id: `mimic-${Date.now()}`,
+            r: curR,
+            c: curC,
+            emoji: '🎁',
+            name: '🎁 Зубастый Сундук-Мимик',
+            policy: 'GUARDIAN',
+            elementWeakness: 'Cosmic',
+            patrolDir: { dr: 0, dc: 1 },
+            maxHp: 115 + level * 10,
+            hp: 115 + level * 10,
+            attack: 22 + level * 2,
+            defense: 12,
+            rewardCoins: 45,
+            telegraphing: true,
+            isMimic: true,
+            affix: 'VAMPIRIC',
+          };
+          setActiveArenaEnemy(mimicEnemy);
+          setActionLogMessage('🎁 Засада! Сундук оказался Зубастым Мимиком — вступайте в бой за 45 🪙!');
+          return;
+        }
+
+        soundFX.playStarCollect();
+        const chestGold = Math.round(15 * goldMultiplier);
+        updatedCoinsEarned += chestGold;
+        setCoinsEarnedRun(updatedCoinsEarned);
+        setCoins((c) => c + chestGold);
+        setStarEnergy((e) => Math.min(5, e + 2));
+        setPlayerHp((hp) => Math.min(activeHero.hp + 25, hp + 15));
+        setActionLogMessage(`Открыт 3D-сундук сокровищ 🎁 (+${chestGold} 🪙, +2 ⚡ магии, +15 ОЗ)!`);
       }
 
-      // 3. Check Enemy collision -> launch RPG Arena Duel!
-      const hitEnemy = enemies.find((e) => e.r === nr && e.c === nc);
+      // 4. Check Ancient Blessing Shrine ⛩️
+      const hitShrineIdx = shrinesRemaining.findIndex((sh) => sh.r === curR && sh.c === curC);
+      if (hitShrineIdx !== -1) {
+        soundFX.playHeal();
+        setShrinesRemaining(shrinesRemaining.filter((_, idx) => idx !== hitShrineIdx));
+        setPlayerHp((hp) => Math.min(activeHero.hp + 25, hp + 30));
+        setStarEnergy(5);
+        setQuantumCharges((q) => q + 1);
+        emitVfxBurst(curR, curC, 0x10b981);
+        progressBounty('SHRINE_OR_PORTAL', 1);
+        setActionLogMessage(
+          '⛩️ Благословение Древнего Алтаря: +30 ОЗ, полная мана (5/5 ⚡) и +1 Квантовый Сдвиг!'
+        );
+      }
+
+      // 5. Check Mechanical Floor Spike Traps ⚙️
+      const hitTrap = maze.traps.some((t) => t.r === curR && t.c === curC);
+      if (hitTrap) {
+        emitVfxBurst(curR, curC, 0xf43f5e);
+        if (activePerks.includes('perk-trap-immunity')) {
+          setStarEnergy((e) => Math.min(5, e + 1));
+          setActionLogMessage('🥾 Крылатые Сапоги защитили от шипов ⚙️ (+1 ⚡ маны)!');
+        } else {
+          soundFX.playHurt();
+          triggerShake();
+          setStreakCount(0);
+          const trapDmg = activeSynergy.passiveKey === 'HOLY_AEGIS' ? 5 : 8;
+          setPlayerHp((hp) => Math.max(10, hp - trapDmg));
+          setActionLogMessage(`⚙️ Осторожно! Напольные шипы Цитадели ранили героя (-${trapDmg} ОЗ)!`);
+        }
+      }
+
+      // 6. Check Enemy collision -> launch RPG Arena Duel!
+      const hitEnemy = enemies.find((e) => e.r === curR && e.c === curC);
       if (hitEnemy) {
         setActiveArenaEnemy(hitEnemy);
         setActionLogMessage(`Встреча с 3D-стражем ${hitEnemy.name}! Начинается RPG-дуэль!`);
         return;
       }
 
-      // 4. Check Exit portal
-      if (nr === maze.exit.r && nc === maze.exit.c) {
+      // 7. Check Exit portal 🏁 (Unlocked if keyCollected or no key required)
+      if (curR === maze.exit.r && curC === maze.exit.c) {
+        if (!hasKeyNow && maze.keyPos) {
+          setActionLogMessage(
+            '🔒 3D-Врата заперты решёткой! Сначала подберите Золотой Ключ 🗝️ (жёлтая дорожка на полу)!'
+          );
+          return;
+        }
         handleCompleteLevel(updatedStarsCollected, maze.stars.length, updatedCoinsEarned);
       }
     },
@@ -311,35 +845,219 @@ export default function App() {
       codexOpen,
       playerPos,
       maze,
+      phaseGatesOpen,
+      quantumCharges,
+      enemies,
+      playerHp,
+      starEnergy,
+      streakCount,
+      activeFamiliar.id,
+      royalGoldMultiplier,
+      keyCollected,
       starsRemaining,
       chestsRemaining,
+      shrinesRemaining,
       starsCollectedRun,
       coinsEarnedRun,
-      enemies,
+      enemiesEnabled,
+      level,
       activeHero.hp,
+      activeSynergy.passiveKey,
+      activePerks,
+      activeTarot,
+      revealFogAround,
+      progressBounty,
       handleCompleteLevel,
+      emitVfxBurst,
     ]
   );
 
-  // Enemy autonomous patrolling loop in 3D Maze
+  // Field Spell [E]: 1.5D Corridor Resonance Shockwave (1 ⚡ Mana)
+  const handleCorridorShockwave = useCallback(() => {
+    if (shellState !== 'playing' || activeArenaEnemy || studioOpen || codexOpen) return;
+    if (starEnergy < 1) {
+      setActionLogMessage('⚡ Недостаточно маны для 1.5D Волнового Импульса [E] (нужна 1 ⚡)!');
+      return;
+    }
+
+    const { dir: waveDir, rayTiles } = castCorridorShockwave(
+      maze,
+      playerPos,
+      lastMoveDir,
+      phaseGatesOpen
+    );
+    if (rayTiles.length === 0) {
+      setActionLogMessage('⚡ Перед вами монолитная стена — повернитесь вдоль коридора для импульса [E]!');
+      return;
+    }
+
+    setLastMoveDir(waveDir);
+    setStarEnergy((e) => Math.max(0, e - 1));
+    soundFX.playSpell();
+    triggerShake();
+    const tailTile = rayTiles[rayTiles.length - 1];
+    emitVfxBurst(tailTile.r, tailTile.c, 0x38bdf8);
+
+    const events: string[] = [];
+
+    // 1. Collect stars along the 1.5D corridor ray
+    const hitStars = starsRemaining.filter((s) =>
+      rayTiles.some((rt) => rt.r === s.r && rt.c === s.c)
+    );
+    if (hitStars.length > 0) {
+      const gainedGold = Math.round(hitStars.length * 6 * royalGoldMultiplier);
+      setStarsRemaining((prev) =>
+        prev.filter((s) => !rayTiles.some((rt) => rt.r === s.r && rt.c === s.c))
+      );
+      setStarsCollectedRun((c) => c + hitStars.length);
+      setCoins((c) => c + gainedGold);
+      setCoinsEarnedRun((c) => c + gainedGold);
+      progressBounty('STARS', hitStars.length);
+      events.push(`притянуто ⭐×${hitStars.length}`);
+    }
+
+    // 2. Collect Golden Key 🗝️ remotely if on ray
+    if (
+      !keyCollected &&
+      maze.keyPos &&
+      rayTiles.some((rt) => rt.r === maze.keyPos!.r && rt.c === maze.keyPos!.c)
+    ) {
+      setKeyCollected(true);
+      events.push('захвачен 🗝️ Ключ');
+    }
+
+    // 3. Toggle Architect's Lever 🎚️ remotely if on ray
+    if (
+      maze.leverPos &&
+      rayTiles.some((rt) => rt.r === maze.leverPos!.r && rt.c === maze.leverPos!.c)
+    ) {
+      setPhaseGatesOpen((prev) => !prev);
+      events.push('переключён 🎚️ Рычаг 4D-Заслонок');
+    }
+
+    // 4. Resonance damage to enemies along the ray (-25% or -45% with Tower Tarot)
+    const dmgRatio = activeTarot.id === 'the-tower' ? 0.42 : 0.25;
+    let hitEnemyCount = 0;
+    setEnemies((prev) =>
+      prev.map((en) => {
+        if (rayTiles.some((rt) => rt.r === en.r && rt.c === en.c)) {
+          hitEnemyCount++;
+          const nextHp = Math.max(12, Math.round(en.hp * (1 - dmgRatio)));
+          return { ...en, hp: nextHp, trapDamaged: true };
+        }
+        return en;
+      })
+    );
+    if (hitEnemyCount > 0) {
+      events.push(`ослаблено стражей: ${hitEnemyCount}`);
+    }
+
+    setActionLogMessage(
+      `🌊 1.5D Волновой Импульс [E] прошил ${rayTiles.length} кл. коридора${
+        events.length > 0 ? ` (${events.join(', ')})` : ''
+      }!`
+    );
+  }, [
+    shellState,
+    activeArenaEnemy,
+    studioOpen,
+    codexOpen,
+    starEnergy,
+    maze,
+    playerPos,
+    lastMoveDir,
+    phaseGatesOpen,
+    starsRemaining,
+    keyCollected,
+    royalGoldMultiplier,
+    activeTarot.id,
+    emitVfxBurst,
+    progressBounty,
+  ]);
+
+  // Field Spell [F]: Medieval Scroll of Petrification & Star Magnet (2 ⚡ Mana)
+  const handleCastPetrifyScroll = useCallback(() => {
+    if (shellState !== 'playing' || activeArenaEnemy || studioOpen || codexOpen) return;
+    if (starEnergy < 2) {
+      setActionLogMessage('🗿 Для Свитка Окаменения [F] требуется 2 ⚡ маны!');
+      return;
+    }
+
+    setStarEnergy((e) => Math.max(0, e - 2));
+    setEnemyFrozenTurns(3);
+    soundFX.playSpell();
+    triggerShake();
+    emitVfxBurst(playerPos.r, playerPos.c, 0x22d3ee);
+
+    // Also pull nearest Star within Manhattan distance <= 3
+    const nearStarIdx = starsRemaining.findIndex(
+      (s) => Math.abs(s.r - playerPos.r) + Math.abs(s.c - playerPos.c) <= 3
+    );
+    if (nearStarIdx !== -1) {
+      setStarsRemaining((prev) => prev.filter((_, idx) => idx !== nearStarIdx));
+      setStarsCollectedRun((c) => c + 1);
+      const starGold = Math.round(6 * royalGoldMultiplier);
+      setCoins((c) => c + starGold);
+      setCoinsEarnedRun((c) => c + starGold);
+      progressBounty('STARS', 1);
+      setActionLogMessage(
+        `🗿 Свиток Окаменения [F]: стражи заморожены на 3 такта ❄️ + притянута ближайшая звезда ⭐ (+${starGold} 🪙)!`
+      );
+    } else {
+      setActionLogMessage(
+        '🗿 Свиток Окаменения [F]: все стражи лабиринта обращены в крио-камень на 3 такта ❄️!'
+      );
+    }
+  }, [
+    shellState,
+    activeArenaEnemy,
+    studioOpen,
+    codexOpen,
+    starEnergy,
+    playerPos,
+    starsRemaining,
+    royalGoldMultiplier,
+    emitVfxBurst,
+    progressBounty,
+  ]);
+
+  // Enemy autonomous patrolling loop + Faction Infighting + Tactical Trap Luring in 3D Maze
   useEffect(() => {
     if (
       shellState !== 'playing' ||
       !enemiesEnabled ||
       activeArenaEnemy !== null ||
       studioOpen ||
-      codexOpen
+      codexOpen ||
+      merchantOpen
     ) {
       return;
     }
 
-    const intervalMs = Math.max(480, 820 - level * 25);
+    const weatherMult = SECTOR_WEATHERS_CATALOG[sectorWeather].enemySpeedMultiplier;
+    const intervalMs = Math.round(Math.max(460, 820 - level * 25) * weatherMult);
     const timer = setInterval(() => {
       if (Date.now() < spawnGraceUntilRef.current) return;
+
+      if (enemyFrozenTurns > 0) {
+        setEnemyFrozenTurns((t) => Math.max(0, t - 1));
+        return;
+      }
 
       setEnemies((prevEnemies) => {
         if (prevEnemies.length === 0) return prevEnemies;
         const nextEnemies = stepEnemies(maze, prevEnemies, playerPos);
+        const clashedPair = nextEnemies.find((e) => e.clashed);
+        const trappedEnemy = nextEnemies.find((e) => e.trapDamaged);
+        if (trappedEnemy) {
+          setActionLogMessage(
+            `⚙️ Тактическая Ловушка! Страж ${trappedEnemy.name} наступил на шипы Цитадели и потерял 20% ОЗ!`
+          );
+        } else if (clashedPair) {
+          setActionLogMessage(
+            `⚔️ Междоусобица Стражей! Два монстра столкнулись в коридоре и ослабили друг друга (-18% ОЗ)!`
+          );
+        }
         const collided = nextEnemies.find((e) => e.r === playerPos.r && e.c === playerPos.c);
         if (collided) {
           setActiveArenaEnemy(collided);
@@ -350,9 +1068,21 @@ export default function App() {
     }, intervalMs);
 
     return () => clearInterval(timer);
-  }, [shellState, enemiesEnabled, activeArenaEnemy, studioOpen, codexOpen, level, maze, playerPos]);
+  }, [
+    shellState,
+    enemiesEnabled,
+    activeArenaEnemy,
+    studioOpen,
+    codexOpen,
+    merchantOpen,
+    level,
+    maze,
+    playerPos,
+    enemyFrozenTurns,
+    sectorWeather,
+  ]);
 
-  // Global keyboard controls (WASD / Arrows / Enter / Space / P / R / M / H / C)
+  // Global keyboard controls (WASD / Arrows / Q / Z / E / F / 1 / 2 / 3 / Enter / Space / P / R / M / H / C)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (
@@ -362,15 +1092,11 @@ export default function App() {
         return;
       }
 
-      if (shellState === 'title') {
-        if ((e.key === 'Enter' || e.key === ' ') && !studioOpen && !codexOpen) {
-          e.preventDefault();
-          startMazeRun(level, difficulty);
-        }
-        return;
-      }
-
       if (e.key === 'Escape') {
+        if (merchantOpen) {
+          setMerchantOpen(false);
+          return;
+        }
         if (studioOpen) {
           setStudioOpen(false);
           return;
@@ -387,6 +1113,54 @@ export default function App() {
         return;
       }
 
+      if (shellState === 'title') {
+        if ((e.key === 'Enter' || e.key === ' ') && !studioOpen && !codexOpen) {
+          e.preventDefault();
+          startMazeRun(level, difficulty);
+        }
+        return;
+      }
+
+      if (e.key === '1' && shellState === 'playing' && !studioOpen && !codexOpen && !activeArenaEnemy) {
+        e.preventDefault();
+        handleUseOrBrewPotion('elixir-phoenix');
+        return;
+      }
+      if (e.key === '2' && shellState === 'playing' && !studioOpen && !codexOpen && !activeArenaEnemy) {
+        e.preventDefault();
+        handleUseOrBrewPotion('ether-stargazer');
+        return;
+      }
+      if (e.key === '3' && shellState === 'playing' && !studioOpen && !codexOpen && !activeArenaEnemy) {
+        e.preventDefault();
+        handleUseOrBrewPotion('oil-basilisk');
+        return;
+      }
+
+      if (e.key.toLowerCase() === 'q' && shellState === 'playing' && !studioOpen && !codexOpen) {
+        e.preventDefault();
+        movePlayer(lastMoveDir.dr, lastMoveDir.dc, true);
+        return;
+      }
+
+      if (e.key.toLowerCase() === 'z' && shellState === 'playing' && !studioOpen && !codexOpen && !activeArenaEnemy) {
+        e.preventDefault();
+        handleChronoRewind();
+        return;
+      }
+
+      if (e.key.toLowerCase() === 'e' && shellState === 'playing' && !studioOpen && !codexOpen && !activeArenaEnemy) {
+        e.preventDefault();
+        handleCorridorShockwave();
+        return;
+      }
+
+      if (e.key.toLowerCase() === 'f' && shellState === 'playing' && !studioOpen && !codexOpen && !activeArenaEnemy) {
+        e.preventDefault();
+        handleCastPetrifyScroll();
+        return;
+      }
+
       if (e.key.toLowerCase() === 'h' && shellState === 'playing' && !studioOpen && !codexOpen) {
         e.preventDefault();
         setDockCollapsed((c) => !c);
@@ -395,9 +1169,20 @@ export default function App() {
 
       if (e.key.toLowerCase() === 'c' && shellState === 'playing' && !studioOpen && !codexOpen) {
         e.preventDefault();
-        setViewMode((v) =>
-          v === '3d-chase' ? '3d-diorama' : v === '3d-diorama' ? '2d-classic' : '3d-chase'
-        );
+        const modeOrder: DimensionalMode[] = [
+          '1.5d-wave',
+          '2.5d-diorama',
+          '3d-chase',
+          '3.5d-quantum',
+          '2d-classic',
+        ];
+        setViewMode((v) => {
+          const next = modeOrder[(modeOrder.indexOf(v) + 1) % modeOrder.length];
+          setActionLogMessage(
+            `${DIMENSIONAL_MODE_META[next].labelRu}: ${DIMENSIONAL_MODE_META[next].descRu}`
+          );
+          return next;
+        });
         return;
       }
 
@@ -449,28 +1234,46 @@ export default function App() {
     activeArenaEnemy,
     level,
     difficulty,
+    lastMoveDir,
     startMazeRun,
     movePlayer,
+    handleChronoRewind,
+    handleCorridorShockwave,
+    handleCastPetrifyScroll,
+    handleUseOrBrewPotion,
+    merchantOpen,
   ]);
 
   const handleBattleResolved = (outcome: {
     won: boolean;
     remainingHp: number;
+    remainingStarEnergy: number;
     rewardCoins: number;
     enemyId: string;
   }) => {
+    const defeatedEmoji = activeArenaEnemy?.emoji;
     setActiveArenaEnemy(null);
+    setStarEnergy(outcome.remainingStarEnergy);
     if (outcome.won) {
+      if (defeatedEmoji) {
+        setBestiaryKills((prev) => ({
+          ...prev,
+          [defeatedEmoji]: (prev[defeatedEmoji] ?? 0) + 1,
+        }));
+      }
+      const midasBoost = activePerks.includes('perk-midas-touch') ? 1.6 : 1.0;
+      const finalReward = Math.round(outcome.rewardCoins * midasBoost * tarotGoldMult);
       setPlayerHp(outcome.remainingHp);
-      setCoins((c) => c + outcome.rewardCoins);
-      setCoinsEarnedRun((c) => c + outcome.rewardCoins);
+      setCoins((c) => c + finalReward);
+      setCoinsEarnedRun((c) => c + finalReward);
       setEnemiesDefeatedRun((d) => d + 1);
       setEnemies((prev) => prev.filter((e) => e.id !== outcome.enemyId));
       setSavedHeroes((prev) =>
         prev.map((h) => (h.id === activeHero.id ? { ...h, wins: h.wins + 1 } : h))
       );
+      progressBounty('ENEMIES', 1);
       setActionLogMessage(
-        `Победа на RPG-Арене! +${outcome.rewardCoins} 🪙. 3D-проход к вратам 🏁 свободен!`
+        `Победа на RPG-Арене! +${finalReward} 🪙 (+Трофей Бестиария 📖). 3D-проход свободен!`
       );
       spawnGraceUntilRef.current = Date.now() + 1800;
     } else {
@@ -489,9 +1292,10 @@ export default function App() {
     }
   };
 
-  const handleArenaRetreat = (remainingHp: number) => {
+  const handleArenaRetreat = (remainingHp: number, remainingStarEnergy: number) => {
     setActiveArenaEnemy(null);
     setPlayerHp(remainingHp);
+    setStarEnergy(remainingStarEnergy);
     setPlayerPos({ r: 1, c: 1 });
     spawnGraceUntilRef.current = Date.now() + 2000;
     setActionLogMessage('Вы отступили на стартовую платформу (1,1)!');
@@ -511,6 +1315,7 @@ export default function App() {
       emoji: template.emoji,
       name: template.name,
       policy: template.policy,
+      elementWeakness: template.weakness,
       patrolDir: { dr: 0, dc: 1 },
       maxHp: Math.round(template.hp * scale),
       hp: Math.round(template.hp * scale),
@@ -556,7 +1361,8 @@ export default function App() {
             h.characterRole,
             skin.emoji,
             h.accessoryEmoji,
-            h.backgroundStyle
+            h.backgroundStyle,
+            h.flagEmoji
           );
           return {
             ...h,
@@ -568,8 +1374,50 @@ export default function App() {
     }
   };
 
-  const hpPercent = Math.max(0, Math.min(100, (playerHp / activeHero.hp) * 100));
-  const trailingHpPercent = Math.max(0, Math.min(100, (trailingHp / activeHero.hp) * 100));
+  const handleForgeRelicForActiveHero = (
+    relicName: string,
+    resultAccEmoji: string,
+    bonusHp: number,
+    bonusAtk: number,
+    bonusDef: number,
+    cost: number
+  ) => {
+    setCoins((c) => Math.max(0, c - cost));
+    setSavedHeroes((prev) =>
+      prev.map((h) => {
+        if (h.id !== activeHero.id) return h;
+        const nextHp = h.hp + bonusHp;
+        setPlayerHp(nextHp);
+        setTrailingHp(nextHp);
+        return {
+          ...h,
+          accessoryEmoji: resultAccEmoji,
+          hp: nextHp,
+          attack: h.attack + bonusAtk,
+          defense: h.defense + bonusDef,
+          forgedRelicName: relicName,
+        };
+      })
+    );
+  };
+
+  const hpPercent = Math.max(0, Math.min(100, (playerHp / (activeHero.hp + activeGuild.bonusHp)) * 100));
+  const trailingHpPercent = Math.max(
+    0,
+    Math.min(100, (trailingHp / (activeHero.hp + activeGuild.bonusHp)) * 100)
+  );
+
+  // Compute live 1.5D Target Vector Compass toward primary objective
+  const primaryTarget =
+    !keyCollected && maze.keyPos
+      ? { pos: maze.keyPos, label: '🗝️ Ключа' }
+      : starsRemaining.length > 0
+      ? { pos: starsRemaining[0], label: '⭐ Звезды' }
+      : { pos: maze.exit, label: '🏁 Врат' };
+  const targetCompass = computeTargetCompass(playerPos, primaryTarget.pos, primaryTarget.label);
+
+  // Pick 3 Roguelike Perk cards to offer on stage clear
+  const offeredPerks: RoguelikePerk[] = ROGUELIKE_PERKS_POOL.slice(0, 3);
 
   return (
     <div
@@ -578,11 +1426,11 @@ export default function App() {
       }`}
     >
       {/* =========================================================
-          1. TITLE SCREEN STAGE (Interactive 3D Hero Showcase)
+          1. TITLE SCREEN STAGE (Interactive 3D Hero Showcase + Biomes)
          ========================================================= */}
       {shellState === 'title' && (
-        <main className="relative z-10 flex-1 flex flex-col justify-between max-w-6xl w-full mx-auto px-6 py-6">
-          <div className="flex flex-wrap items-center justify-between gap-4 border-b border-purple-300/15 pb-4">
+        <main className="relative z-10 flex-1 flex flex-col justify-between max-w-6xl w-full mx-auto px-6 py-5">
+          <div className="flex flex-wrap items-center justify-between gap-4 border-b border-purple-300/15 pb-3.5">
             <div className="flex items-center gap-3">
               <svg
                 width="42"
@@ -618,12 +1466,21 @@ export default function App() {
                   EMOJI UNIVERSE 3D
                 </h1>
                 <p className="text-xs text-purple-200/80">
-                  3D WebGL Labyrinth × Emoji Avatar Studio · Полное 3D-издание
+                  Средневековая Цитадель × Кибер-Лабиринт × Алхимическая Кузница Рун
                 </p>
               </div>
             </div>
 
-            <div className="flex items-center gap-5 text-sm font-mono-tabular">
+            <div className="flex flex-wrap items-center gap-4 text-sm font-mono-tabular">
+              <div>
+                <span className="text-purple-300/75 text-xs mr-1.5">ТИТУЛ:</span>
+                <span className="font-bold text-amber-300">
+                  {royalRank.crestEmoji} {royalRank.titleRu}
+                </span>
+              </div>
+              <span aria-hidden="true" className="text-purple-400/40">
+                ·
+              </span>
               <div>
                 <span className="text-purple-300/75 text-xs mr-1.5">МОНЕТЫ:</span>
                 <span className="font-bold text-amber-300">🪙 {coins}</span>
@@ -632,38 +1489,41 @@ export default function App() {
                 ·
               </span>
               <div>
-                <span className="text-purple-300/75 text-xs mr-1.5">МАКС. СЕКТОР:</span>
+                <span className="text-purple-300/75 text-xs mr-1.5">СЕКТОР:</span>
                 <span className="font-bold text-emerald-300">УР. {highLevel}</span>
               </div>
               <span aria-hidden="true" className="text-purple-400/40">
                 ·
               </span>
               <div>
-                <span className="text-purple-300/75 text-xs mr-1.5">СКИНЫ:</span>
-                <span className="font-bold text-purple-200">{unlockedSkins.length}/19</span>
+                <span className="text-purple-300/75 text-xs mr-1.5">ФАМИЛЬЯР:</span>
+                <span className="font-bold text-cyan-300">
+                  {activeFamiliar.emoji} {activeFamiliar.nameRu}
+                </span>
               </div>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-center my-auto py-6">
-            <div className="lg:col-span-7 space-y-6">
-              <div className="space-y-2.5">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-7 items-center my-auto py-4">
+            <div className="lg:col-span-7 space-y-4">
+              <div className="space-y-2">
                 <h2
                   style={{ textWrap: 'balance' }}
-                  className="text-3xl sm:text-5xl font-extrabold text-white leading-[1.1] tracking-tight"
+                  className="text-3xl sm:text-5xl font-extrabold text-white leading-[1.08] tracking-tight"
                 >
-                  Создай 3D-Героя, Исследуй 3D-Лабиринт и Срази Боссов
+                  Создай 3D-Героя, Исследуй 4 Биома и Сплетай Заклинания
                 </h2>
-                <p className="text-sm sm:text-base text-purple-200/85 max-w-xl leading-relaxed">
-                  Соберите голографическую 3D-карточку бойца, отправляйтесь в трёхмерный WebGL-лабиринт с динамическим освещением за кристаллами звёзд ⭐ и сундуками 🎁, и побеждайте стражей 👾 на RPG-Арене.
+                <p className="text-sm text-purple-200/85 max-w-xl leading-relaxed">
+                  Откройте синергию глифов 🧬, выкуйте рунные артефакты ⚗️, найдите золотой ключ 🗝️ в факельной Средневековой Цитадели 🏰 или Неоновом Ядре ⚡, проходите сквозь стены квантовым сдвигом 📐 и сокрушайте боссов синтезом 3 рун 🎹!
                 </p>
               </div>
 
-              <div className="space-y-2">
+              {/* 1. Difficulty Selector */}
+              <div className="space-y-1.5">
                 <div className="text-xs font-semibold text-purple-200">
-                  Размер и сложность 3D-лабиринта:
+                  1. Размер и сложность 3D-лабиринта:
                 </div>
-                <div className="grid grid-cols-3 gap-2.5">
+                <div className="grid grid-cols-3 gap-2">
                   {(['EASY', 'MEDIUM', 'HARD'] as DifficultyKey[]).map((key) => {
                     const cfg = DIFFICULTIES[key];
                     const selected = difficulty === key;
@@ -672,13 +1532,13 @@ export default function App() {
                         key={key}
                         type="button"
                         onClick={() => setDifficulty(key)}
-                        className={`p-3 rounded-2xl border text-left transition-all ${
+                        className={`p-2.5 rounded-2xl border text-left transition-all ${
                           selected
                             ? 'bg-purple-600/35 border-purple-400 text-white shadow-md'
                             : 'bg-[#1D1636] border-purple-300/15 text-purple-200 hover:bg-purple-900/30'
                         }`}
                       >
-                        <div className="text-sm font-bold whitespace-nowrap">{cfg.label}</div>
+                        <div className="text-xs sm:text-sm font-bold whitespace-nowrap">{cfg.label}</div>
                         <div className="text-[11px] text-purple-200/75 mt-0.5">{cfg.subtitle}</div>
                       </button>
                     );
@@ -686,23 +1546,105 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="flex flex-wrap items-center gap-3">
+              {/* 2. 3D Biome Selector (Medieval Citadel, Cyber Neon, Atlantis, Supernova) */}
+              <div className="space-y-1.5">
+                <div className="text-xs font-semibold text-purple-200">
+                  2. Эпоха и 3D-Биом Лабиринта (меняет освещение, факел и архитектуру):
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  {(['CYBER_NEON', 'MEDIEVAL_CITADEL', 'SUNKEN_ATLANTIS', 'SOLAR_SUPERNOVA'] as BiomeKey[]).map(
+                    (bKey) => {
+                      const b = BIOMES[bKey];
+                      const active = biomeKey === bKey;
+                      return (
+                        <button
+                          key={bKey}
+                          type="button"
+                          onClick={() => setBiomeKey(bKey)}
+                          className={`p-2.5 rounded-xl border text-left transition-all ${
+                            active
+                              ? 'bg-amber-500/25 border-amber-400 text-white shadow'
+                              : 'bg-[#1D1636] border-purple-300/15 text-purple-200 hover:bg-purple-900/30'
+                          }`}
+                        >
+                          <div className="text-xs font-bold truncate">{b.titleRu}</div>
+                          <div className="text-[10px] text-purple-200/70 truncate mt-0.5">
+                            {b.subtitleRu}
+                          </div>
+                        </button>
+                      );
+                    }
+                  )}
+                </div>
+              </div>
+
+              {/* Quick Settings Row + 2.5D Tarot + Guild Order + 4.5D Weather */}
+              <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button"
-                  onClick={() =>
-                    setViewMode((v) => (v === '3d-chase' ? '3d-diorama' : '3d-chase'))
-                  }
-                  className="px-3.5 py-2 rounded-xl border bg-cyan-500/20 border-cyan-400/40 text-cyan-200 text-xs font-semibold transition-colors whitespace-nowrap"
+                  onClick={() => {
+                    const order: DimensionalMode[] = [
+                      '3d-chase',
+                      '3.5d-quantum',
+                      '2.5d-diorama',
+                      '1.5d-wave',
+                    ];
+                    setViewMode((v) => order[(order.indexOf(v) + 1) % order.length]);
+                  }}
+                  className="px-3 py-1.5 rounded-xl border bg-cyan-500/20 border-cyan-400/40 text-cyan-200 text-xs font-semibold transition-colors whitespace-nowrap"
                 >
-                  {viewMode === '3d-chase'
-                    ? '🎥 Камера: 3D От 3-го лица (Chase)'
-                    : '🦅 Камера: 3D Диорама Лабиринта'}
+                  📐 Проекция: {DIMENSIONAL_MODE_META[viewMode].labelRu}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    const idx = TAROT_CARDS_CATALOG.findIndex((t) => t.id === activeTarotId);
+                    const nextTarot =
+                      TAROT_CARDS_CATALOG[(idx + 1) % TAROT_CARDS_CATALOG.length];
+                    setActiveTarotId(nextTarot.id);
+                  }}
+                  title={activeTarot.effectRu}
+                  className="px-3 py-1.5 rounded-xl border bg-amber-500/20 border-amber-400/40 text-amber-200 text-xs font-semibold transition-colors whitespace-nowrap"
+                >
+                  🃏 Таро: {activeTarot.emoji} {activeTarot.titleRu}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    const idx = GUILD_ORDERS_CATALOG.findIndex((g) => g.id === activeGuildId);
+                    const nextGuild =
+                      GUILD_ORDERS_CATALOG[(idx + 1) % GUILD_ORDERS_CATALOG.length];
+                    setActiveGuildId(nextGuild.id);
+                  }}
+                  title={activeGuild.descRu}
+                  className="px-3 py-1.5 rounded-xl border bg-emerald-500/20 border-emerald-400/40 text-emerald-200 text-xs font-semibold transition-colors whitespace-nowrap"
+                >
+                  ⚜️ Орден: {activeGuild.emoji} {activeGuild.titleRu}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    const wOrder: SectorWeatherKey[] = [
+                      'CLEAR_AETHER',
+                      'METEOR_EMBER',
+                      'CHRONO_MIST',
+                      'ASTRAL_STORM',
+                    ];
+                    setSectorWeather((w) => wOrder[(wOrder.indexOf(w) + 1) % wOrder.length]);
+                  }}
+                  title={SECTOR_WEATHERS_CATALOG[sectorWeather].descRu}
+                  className="px-3 py-1.5 rounded-xl border bg-purple-500/25 border-purple-400/40 text-purple-200 text-xs font-semibold transition-colors whitespace-nowrap"
+                >
+                  {SECTOR_WEATHERS_CATALOG[sectorWeather].badgeRu}
                 </button>
 
                 <button
                   type="button"
                   onClick={() => setEnemiesEnabled((v) => !v)}
-                  className={`px-3.5 py-2 rounded-xl border text-xs font-semibold transition-colors whitespace-nowrap ${
+                  className={`px-3 py-1.5 rounded-xl border text-xs font-semibold transition-colors whitespace-nowrap ${
                     enemiesEnabled
                       ? 'bg-rose-500/20 border-rose-400/40 text-rose-200'
                       : 'bg-[#1D1636] border-purple-300/15 text-purple-300'
@@ -712,7 +1654,7 @@ export default function App() {
                 </button>
               </div>
 
-              {/* Single-row Primary CTA & Studio Actions */}
+              {/* Primary CTA & Studio Actions */}
               <div className="flex flex-wrap sm:flex-nowrap items-center gap-2.5 pt-1">
                 <button
                   type="button"
@@ -731,7 +1673,7 @@ export default function App() {
                   }}
                   className="px-4 py-3.5 rounded-2xl bg-[#241B42] hover:bg-[#2F2356] border border-purple-300/30 text-white font-bold text-sm transition-colors whitespace-nowrap"
                 >
-                  🛠️ 3D-Студия ({savedHeroes.length})
+                  🛠️ 3D-Студия и Кузница
                 </button>
 
                 <button
@@ -739,13 +1681,13 @@ export default function App() {
                   onClick={() => setCodexOpen(true)}
                   className="px-4 py-3.5 rounded-2xl bg-[#1D1636] hover:bg-[#281E4B] border border-purple-300/20 text-purple-200 font-semibold text-sm transition-colors whitespace-nowrap"
                 >
-                  📖 Сравнение 2 Игр
+                  📜 Контракты и Кодекс
                 </button>
               </div>
             </div>
 
-            <div className="lg:col-span-5 flex flex-col items-center justify-center bg-[#1C1533] border border-purple-300/20 rounded-3xl p-6 shadow-2xl">
-              <div className="text-xs font-semibold text-purple-300 mb-3">
+            <div className="lg:col-span-5 flex flex-col items-center justify-center bg-[#1C1533] border border-purple-300/20 rounded-3xl p-5 shadow-2xl">
+              <div className="text-xs font-semibold text-purple-300 mb-2">
                 Активный 3D-Боец (наведите для 3D-параллакса)
               </div>
 
@@ -755,20 +1697,22 @@ export default function App() {
                 flagEmoji={activeHero.flagEmoji}
                 bgStyle={activeHero.backgroundStyle}
                 role={activeHero.characterRole}
-                sizePx={184}
+                sizePx={172}
                 hasGlow={true}
                 testId="title-hero-card"
               />
 
-              <div className="mt-4 text-center">
+              <div className="mt-3 text-center">
                 <div className="text-lg font-extrabold text-white">{activeHero.name}</div>
-                <div className="text-xs text-purple-300/85 mt-0.5">
-                  {ROLE_METADATA[activeHero.characterRole].titleRu} ·{' '}
-                  {ELEMENTAL_SPELLS[activeHero.backgroundStyle].spellName}
+                <div className="text-xs text-amber-300 font-bold mt-0.5">
+                  🧬 {activeSynergy.titleRu}
+                </div>
+                <div className="text-[11px] text-purple-200/80 mt-0.5">
+                  {activeSynergy.descriptionRu}
                 </div>
               </div>
 
-              <div className="w-full grid grid-cols-3 gap-2 mt-4 pt-4 border-t border-purple-300/15 text-center font-mono-tabular">
+              <div className="w-full grid grid-cols-3 gap-2 mt-3.5 pt-3.5 border-t border-purple-300/15 text-center font-mono-tabular">
                 <div className="p-2 rounded-xl bg-[#140E26]">
                   <div className="text-[11px] text-rose-300">ОЗ (HP)</div>
                   <div className="text-base font-bold text-white">{activeHero.hp}</div>
@@ -786,18 +1730,18 @@ export default function App() {
               <button
                 type="button"
                 onClick={() => {
-                  setStudioInitialTab('shop');
+                  setStudioInitialTab('forge');
                   setStudioOpen(true);
                 }}
-                className="mt-4 w-full py-2.5 rounded-xl bg-purple-500/20 hover:bg-purple-500/30 border border-purple-400/30 text-xs font-bold text-purple-100 transition-colors"
+                className="mt-3.5 w-full py-2.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/35 text-xs font-bold text-amber-200 transition-colors"
               >
-                Сменить Скин или Настроить 3D-Карточку →
+                ⚗️ Открыть Средневековую Кузницу Рун или Шкаф Скинов →
               </button>
             </div>
           </div>
 
-          <div className="text-center text-xs text-purple-300/70 pt-2">
-            WASD / Стрелки / Клик по 3D-плитке — Шаг · C — Смена 3D-камеры · H — Скрыть панель · P — Пауза
+          <div className="text-center text-xs text-purple-300/70 pt-1">
+            WASD / Стрелки / Клик по 3D-плитке — Шаг · Q — Квантовый Сдвиг сквозь стену · C — Камера · H — Скрыть панель · P — Пауза
           </div>
         </main>
       )}
@@ -812,14 +1756,24 @@ export default function App() {
             {viewMode !== '2d-classic' ? (
               <Maze3DViewport
                 maze={maze}
+                biomeKey={biomeKey}
                 playerPos={playerPos}
                 starsRemaining={starsRemaining}
                 chestsRemaining={chestsRemaining}
+                shrinesRemaining={shrinesRemaining}
+                keyCollected={keyCollected}
+                phaseGatesOpen={phaseGatesOpen}
+                enemyFrozenTurns={enemyFrozenTurns}
+                sectorWeather={sectorWeather}
                 enemies={enemies}
                 activeHero={activeHero}
-                cameraMode={viewMode === '3d-chase' ? 'chase' : 'diorama'}
+                activeFamiliar={activeFamiliar}
+                cameraMode={viewMode}
                 boardShake={boardShake}
-                onMoveStep={movePlayer}
+                historyPositions={historyStack.map((h) => h.playerPos)}
+                quantumTarget={quantumPhaseOption?.target ?? null}
+                vfxBurst={vfxBurst}
+                onMoveStep={(dr, dc) => movePlayer(dr, dc, false)}
               />
             ) : (
               <div className="w-full h-full flex items-center justify-center bg-[#130E24] p-4 pb-36 pt-20">
@@ -843,6 +1797,13 @@ export default function App() {
                         const isPlayer = playerPos.r === rIdx && playerPos.c === cIdx;
                         const isStar = starsRemaining.some((s) => s.r === rIdx && s.c === cIdx);
                         const isChest = chestsRemaining.some((c) => c.r === rIdx && c.c === cIdx);
+                        const isShrine = shrinesRemaining.some((s) => s.r === rIdx && s.c === cIdx);
+                        const isKey =
+                          !keyCollected && maze.keyPos?.r === rIdx && maze.keyPos?.c === cIdx;
+                        const isPortal =
+                          (maze.portals?.a.r === rIdx && maze.portals?.a.c === cIdx) ||
+                          (maze.portals?.b.r === rIdx && maze.portals?.b.c === cIdx);
+                        const isTrap = maze.traps.some((t) => t.r === rIdx && t.c === cIdx);
                         const enemyHere = enemies.find((e) => e.r === rIdx && e.c === cIdx);
                         const isExit = rIdx === maze.exit.r && cIdx === maze.exit.c;
 
@@ -865,9 +1826,13 @@ export default function App() {
                             }}
                             className="relative w-full h-full flex items-center justify-center text-base sm:text-lg"
                           >
-                            {isExit && !isPlayer && '🏁'}
+                            {isExit && !isPlayer && (keyCollected ? '🏁' : '🔒')}
+                            {isKey && !isPlayer && '🗝️'}
                             {isStar && !isPlayer && '⭐'}
                             {isChest && !isPlayer && '🎁'}
+                            {isShrine && !isPlayer && '⛩️'}
+                            {isPortal && !isPlayer && '🌀'}
+                            {isTrap && !isPlayer && '⚙️'}
                             {enemyHere && !isPlayer && enemyHere.emoji}
                             {isPlayer && (
                               <span className="w-full h-full rounded-full bg-cyan-400/25 ring-2 ring-cyan-300 flex items-center justify-center">
@@ -910,17 +1875,17 @@ export default function App() {
                     <div className="text-xs font-bold text-white leading-tight">
                       {activeHero.name}
                     </div>
-                    <div className="text-[11px] text-purple-300">
-                      СЕКТОР #{level} · 3D LABYRINTH
+                    <div className="text-[11px] text-amber-300">
+                      СЕКТОР #{level} · {BIOMES[biomeKey].titleRu}
                     </div>
                   </div>
                 </button>
 
-                <div className="w-32 sm:w-40">
+                <div className="w-28 sm:w-36">
                   <div className="flex items-center justify-between text-[11px] font-mono-tabular mb-0.5">
                     <span className="font-bold text-rose-300">ОЗ</span>
                     <span className="font-bold text-white">
-                      {Math.round(playerHp)}/{activeHero.hp}
+                      {Math.round(playerHp)}/{activeHero.hp + activeGuild.bonusHp}
                     </span>
                   </div>
                   <div className="relative w-full h-2 bg-black/70 rounded-full overflow-hidden border border-white/10">
@@ -937,7 +1902,13 @@ export default function App() {
               </div>
 
               {/* Center Live Telemetry */}
-              <div className="flex items-center gap-4 font-mono-tabular">
+              <div className="flex items-center gap-3.5 font-mono-tabular">
+                <div className="text-center">
+                  <div className="text-[10px] text-purple-300">КЛЮЧ</div>
+                  <div className="text-sm font-extrabold text-amber-300">
+                    {keyCollected ? '🗝️ ОТКРЫТО' : '🔒 ИЩИТЕ'}
+                  </div>
+                </div>
                 <div className="text-center">
                   <div className="text-[10px] text-purple-300">ЗВЁЗДЫ</div>
                   <div className="text-sm font-extrabold text-amber-300">
@@ -952,10 +1923,6 @@ export default function App() {
                   <div className="text-[10px] text-purple-300">МОНЕТЫ</div>
                   <div className="text-sm font-extrabold text-white">🪙 {coins}</div>
                 </div>
-                <div className="text-center">
-                  <div className="text-[10px] text-purple-300">СТРАЖИ</div>
-                  <div className="text-sm font-extrabold text-rose-300">👾 {enemies.length}</div>
-                </div>
               </div>
 
               {/* Top-Right Compact Controls */}
@@ -963,12 +1930,29 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => {
-                    setStudioInitialTab('shop');
+                    const order: BiomeKey[] = [
+                      'CYBER_NEON',
+                      'MEDIEVAL_CITADEL',
+                      'SUNKEN_ATLANTIS',
+                      'SOLAR_SUPERNOVA',
+                    ];
+                    const nextB = order[(order.indexOf(biomeKey) + 1) % order.length];
+                    setBiomeKey(nextB);
+                    setActionLogMessage(`Смена 3D-Биома: ${BIOMES[nextB].titleRu}!`);
+                  }}
+                  className="px-2.5 py-1.5 rounded-xl bg-amber-500/25 hover:bg-amber-500/40 border border-amber-400/40 text-xs font-bold text-amber-200 whitespace-nowrap"
+                >
+                  {BIOMES[biomeKey].emoji} Биом
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setStudioInitialTab('forge');
                     setStudioOpen(true);
                   }}
                   className="px-2.5 py-1.5 rounded-xl bg-purple-600/35 hover:bg-purple-600/55 border border-purple-400/40 text-xs font-bold text-purple-100 whitespace-nowrap"
                 >
-                  🛠️ 3D-Студия
+                  ⚗️ Кузница
                 </button>
                 <button
                   type="button"
@@ -1031,6 +2015,26 @@ export default function App() {
             </div>
           </div>
 
+          {/* CARTOGRAPHER'S FOG-OF-WAR MINIMAP + 1.5D COMPASS + 4.5D WEATHER + CHRONO-REWIND [Z] */}
+          {!dockCollapsed && (
+            <div className="fixed top-20 left-4 z-20 pointer-events-auto hidden md:block">
+              <CartographerMinimap
+                maze={maze}
+                playerPos={playerPos}
+                exploredSet={exploredTiles}
+                starsRemaining={starsRemaining}
+                keyCollected={keyCollected}
+                phaseGatesOpen={phaseGatesOpen}
+                enemies={enemies}
+                streakCount={streakCount}
+                rewindCount={historyStack.length}
+                compassSummary={targetCompass.summaryRu}
+                weatherBadge={SECTOR_WEATHERS_CATALOG[sectorWeather].badgeRu}
+                onTriggerRewind={handleChronoRewind}
+              />
+            </div>
+          )}
+
           {/* UNIFIED COLLAPSIBLE BOTTOM CONTROL DOCK (Zero Viewport Occlusion) */}
           <div className="relative z-20 mx-auto mb-3 w-full max-w-4xl px-4 flex flex-col items-center pointer-events-auto">
             <button
@@ -1062,38 +2066,86 @@ export default function App() {
                       {actionLogMessage}
                     </div>
                     <div className="flex flex-wrap items-center gap-1.5">
+                      {(
+                        [
+                          '1.5d-wave',
+                          '2.5d-diorama',
+                          '3d-chase',
+                          '3.5d-quantum',
+                          '2d-classic',
+                        ] as DimensionalMode[]
+                      ).map((mKey) => {
+                        const meta = DIMENSIONAL_MODE_META[mKey];
+                        const isSelected = viewMode === mKey;
+                        return (
+                          <button
+                            key={mKey}
+                            type="button"
+                            onClick={() => {
+                              setViewMode(mKey);
+                              setActionLogMessage(`${meta.labelRu}: ${meta.descRu}`);
+                            }}
+                            className={`px-2 py-1 rounded-lg text-[11px] font-bold transition-colors whitespace-nowrap ${
+                              isSelected
+                                ? 'bg-purple-600 text-white ring-1 ring-purple-300'
+                                : 'bg-white/10 text-purple-200 hover:bg-white/15'
+                            }`}
+                          >
+                            {meta.shortLabelRu}
+                          </button>
+                        );
+                      })}
                       <button
                         type="button"
-                        onClick={() => setViewMode('3d-chase')}
-                        className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-colors whitespace-nowrap ${
-                          viewMode === '3d-chase'
-                            ? 'bg-purple-600 text-white'
-                            : 'bg-white/10 text-purple-200 hover:bg-white/15'
-                        }`}
+                        disabled={quantumCharges <= 0}
+                        onClick={() => movePlayer(lastMoveDir.dr, lastMoveDir.dc, true)}
+                        className="px-2.5 py-1 rounded-lg bg-cyan-500/25 hover:bg-cyan-500/40 disabled:opacity-35 border border-cyan-400/40 text-[11px] font-bold text-cyan-200 whitespace-nowrap"
                       >
-                        🎥 3D Вслед
+                        📐 Сдвиг [Q] ({quantumCharges})
                       </button>
                       <button
                         type="button"
-                        onClick={() => setViewMode('3d-diorama')}
-                        className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-colors whitespace-nowrap ${
-                          viewMode === '3d-diorama'
-                            ? 'bg-purple-600 text-white'
-                            : 'bg-white/10 text-purple-200 hover:bg-white/15'
-                        }`}
+                        disabled={starEnergy < 1}
+                        onClick={handleCorridorShockwave}
+                        className="px-2.5 py-1 rounded-lg bg-sky-500/25 hover:bg-sky-500/40 disabled:opacity-35 border border-sky-400/40 text-[11px] font-bold text-sky-200 whitespace-nowrap"
                       >
-                        🦅 3D Диорама
+                        ⚡ Волна [E]
                       </button>
                       <button
                         type="button"
-                        onClick={() => setViewMode('2d-classic')}
-                        className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-colors whitespace-nowrap ${
-                          viewMode === '2d-classic'
-                            ? 'bg-purple-600 text-white'
-                            : 'bg-white/10 text-purple-200 hover:bg-white/15'
-                        }`}
+                        disabled={starEnergy < 2}
+                        onClick={handleCastPetrifyScroll}
+                        className="px-2.5 py-1 rounded-lg bg-indigo-500/25 hover:bg-indigo-500/40 disabled:opacity-35 border border-indigo-400/40 text-[11px] font-bold text-indigo-200 whitespace-nowrap"
                       >
-                        🗺️ 2D Сетка
+                        🗿 Свиток [F]
+                      </button>
+                      {ALCHEMICAL_POTIONS_CATALOG.map((pot) => {
+                        const count = potionBelt[pot.id] ?? 0;
+                        return (
+                          <button
+                            key={pot.id}
+                            type="button"
+                            onClick={() => handleUseOrBrewPotion(pot.id)}
+                            title={`${pot.titleRu}: ${pot.descRu}`}
+                            className="px-2 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/35 border border-emerald-400/35 text-[11px] font-bold text-emerald-200 whitespace-nowrap"
+                          >
+                            {pot.emoji} [{pot.hotkey}] ({count})
+                          </button>
+                        );
+                      })}
+                      <button
+                        type="button"
+                        onClick={() => setMerchantOpen(true)}
+                        className="px-2.5 py-1 rounded-lg bg-orange-500/20 hover:bg-orange-500/35 border border-orange-400/35 text-[11px] font-bold text-orange-200 whitespace-nowrap"
+                      >
+                        🐪 Караван
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setCodexOpen(true)}
+                        className="px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/35 border border-amber-400/30 text-[11px] font-bold text-amber-200 whitespace-nowrap"
+                      >
+                        📖 Кодекс
                       </button>
                       <button
                         type="button"
@@ -1164,7 +2216,7 @@ export default function App() {
             <div>
               <h2 className="text-2xl font-extrabold text-white">3D-Игра на Паузе</h2>
               <p className="text-xs text-purple-200/75 mt-1">
-                Сектор лабиринта #{level} · Герой: {activeHero.name}
+                Сектор #{level} ({BIOMES[biomeKey].titleRu}) · Герой: {activeHero.name}
               </p>
             </div>
 
@@ -1182,7 +2234,7 @@ export default function App() {
               <div className="p-2.5 rounded-xl bg-[#130E24]">
                 <div className="text-[11px] text-purple-300">ОЗ ГЕРОЯ</div>
                 <div className="text-base font-bold text-emerald-300">
-                  {playerHp}/{activeHero.hp}
+                  {playerHp}/{activeHero.hp + activeGuild.bonusHp}
                 </div>
               </div>
             </div>
@@ -1215,17 +2267,17 @@ export default function App() {
       )}
 
       {/* =========================================================
-          4. VICTORY / GAME OVER MODAL ('gameover')
+          4. VICTORY / GAME OVER MODAL ('gameover' + Roguelike Perk Draft)
          ========================================================= */}
       {shellState === 'gameover' && runSummary && (
         <div
           role="dialog"
           aria-modal="true"
           aria-label={runSummary.victory ? 'Уровень Пройден' : 'Поражение'}
-          className="fixed inset-0 z-40 flex items-center justify-center bg-black/80 p-4"
+          className="fixed inset-0 z-40 flex items-center justify-center bg-black/80 p-4 overflow-y-auto"
         >
-          <div className="w-full max-w-md bg-[#1C1533] border-2 border-purple-400/50 rounded-3xl p-6 text-center space-y-5 shadow-2xl">
-            <div className="text-5xl">{runSummary.victory ? '🏆' : '💀'}</div>
+          <div className="w-full max-w-lg bg-[#1C1533] border-2 border-purple-400/50 rounded-3xl p-6 text-center space-y-4 shadow-2xl">
+            <div className="text-4xl">{runSummary.victory ? '🏆' : '💀'}</div>
             <div>
               <h2 className="text-2xl font-extrabold text-white">
                 {runSummary.victory
@@ -1234,35 +2286,99 @@ export default function App() {
               </h2>
               <p className="text-xs text-purple-200/80 mt-1">
                 {runSummary.victory
-                  ? runSummary.starsCollected >= runSummary.totalStars
-                    ? 'Идеальное прохождение! Собраны все звёзды (+30 бонусных монет)!'
-                    : 'Вы успешно достигли 3D-арки выхода 🏁 (+15 бонусных монет)!'
-                  : 'Стражи лабиринта оказались сильнее. Улучшите билд в 3D-Студии и попробуйте снова!'}
+                  ? 'Выберите 1 из 3 Карт Талантов (Roguelike Perk) для усиления в следующем биоме!'
+                  : 'Стражи лабиринта оказались сильнее. Выкуйте артефакт в Кузнице Рун и попробуйте снова!'}
               </p>
             </div>
 
+            {(() => {
+              const mastery = computeRunMasteryGrade(
+                runSummary.starsCollected,
+                runSummary.totalStars,
+                runSummary.clearTimeSec,
+                runSummary.enemiesDefeated,
+                runSummary.victory
+              );
+              return (
+                <div className="px-4 py-2.5 rounded-2xl bg-amber-500/15 border border-amber-400/40 flex items-center justify-between text-left">
+                  <div>
+                    <div className="text-[10px] font-bold text-amber-300 uppercase tracking-wider">
+                      Ранг Мастерства Прохождения
+                    </div>
+                    <div className="text-sm font-extrabold text-white">{mastery.titleRu}</div>
+                  </div>
+                  <div className="flex items-center gap-2 font-mono-tabular">
+                    <span className="text-xs font-bold text-emerald-300">
+                      +{mastery.bonusCoins} 🪙
+                    </span>
+                    <span className="px-3 py-1 rounded-xl bg-amber-400 text-[#130E24] font-extrabold text-lg">
+                      {mastery.grade}
+                    </span>
+                  </div>
+                </div>
+              );
+            })()}
+
             <div className="grid grid-cols-3 gap-2.5 font-mono-tabular">
-              <div className="p-3 rounded-2xl bg-[#130E24] border border-purple-300/15">
+              <div className="p-2.5 rounded-2xl bg-[#130E24] border border-purple-300/15">
                 <div className="text-[11px] text-purple-300">ЗВЁЗДЫ</div>
-                <div className="text-lg font-extrabold text-amber-300">
+                <div className="text-base font-extrabold text-amber-300">
                   ⭐ {runSummary.starsCollected}/{runSummary.totalStars}
                 </div>
               </div>
-              <div className="p-3 rounded-2xl bg-[#130E24] border border-purple-300/15">
+              <div className="p-2.5 rounded-2xl bg-[#130E24] border border-purple-300/15">
                 <div className="text-[11px] text-purple-300">ДОБЫТО</div>
-                <div className="text-lg font-extrabold text-emerald-300">
+                <div className="text-base font-extrabold text-emerald-300">
                   +{runSummary.coinsEarned} 🪙
                 </div>
               </div>
-              <div className="p-3 rounded-2xl bg-[#130E24] border border-purple-300/15">
+              <div className="p-2.5 rounded-2xl bg-[#130E24] border border-purple-300/15">
                 <div className="text-[11px] text-purple-300">ВРЕМЯ</div>
-                <div className="text-lg font-extrabold text-white">
+                <div className="text-base font-extrabold text-white">
                   {runSummary.clearTimeSec}с
                 </div>
               </div>
             </div>
 
-            <div className="space-y-2.5">
+            {/* ROGUELIKE PERK DRAFT CARDS ON VICTORY */}
+            {runSummary.victory && (
+              <div className="text-left space-y-2">
+                <div className="text-xs font-bold text-amber-300 text-center">
+                  🃏 Выберите Талант Возвышения перед следующим походом:
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  {offeredPerks.map((perk) => {
+                    const isPicked =
+                      selectedPerkOnVictory === perk.id || activePerks.includes(perk.id);
+                    return (
+                      <button
+                        key={perk.id}
+                        type="button"
+                        onClick={() => {
+                          setSelectedPerkOnVictory(perk.id);
+                          setActivePerks((prev) =>
+                            prev.includes(perk.id) ? prev : [...prev, perk.id]
+                          );
+                        }}
+                        className={`p-3 rounded-2xl border text-left transition-all ${
+                          isPicked
+                            ? 'bg-amber-500/25 border-amber-400 text-white'
+                            : 'bg-[#130E24] border-purple-300/20 text-purple-200 hover:bg-purple-900/30'
+                        }`}
+                      >
+                        <div className="text-lg">{perk.emoji}</div>
+                        <div className="text-xs font-bold text-white mt-1">{perk.titleRu}</div>
+                        <div className="text-[10px] text-purple-200/75 mt-1 leading-snug">
+                          {perk.descRu}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            <div className="space-y-2 pt-1">
               <button
                 type="button"
                 data-start="true"
@@ -1270,27 +2386,192 @@ export default function App() {
                 className="w-full py-3.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-extrabold text-sm shadow-lg transition-colors"
               >
                 {runSummary.victory
-                  ? `🚀 Следующий 3D-Лабиринт (#${level}) →`
+                  ? `🚀 Следующий 3D-Биом (Сектор #${level}) →`
                   : '🔄 Попробовать Снова'}
               </button>
               <button
                 type="button"
                 onClick={() => {
                   setShellState('title');
-                  setStudioInitialTab('shop');
+                  setStudioInitialTab('forge');
                   setStudioOpen(true);
                 }}
-                className="w-full py-3 rounded-xl bg-white/10 hover:bg-white/20 text-purple-100 font-bold text-sm transition-colors"
+                className="w-full py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-purple-100 font-bold text-xs sm:text-sm transition-colors"
               >
-                🛠️ Открыть 3D-Студию и Магазин Скинов
+                ⚗️ Открыть Кузницу Рун и Магазин Скинов
               </button>
               <button
                 type="button"
                 onClick={() => setShellState('title')}
-                className="w-full py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-purple-200 font-semibold text-xs transition-colors"
+                className="w-full py-2 rounded-xl bg-white/5 hover:bg-white/10 text-purple-200 font-semibold text-xs transition-colors"
               >
                 🏠 Вернуться на Титульный Экран
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* =========================================================
+          4B. WANDERING CARAVAN MERCHANT MODAL ('merchantOpen' 🐪)
+         ========================================================= */}
+      {merchantOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Караван Странствующего Алхимика"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
+        >
+          <div className="w-full max-w-xl bg-[#1C1533] border-2 border-amber-400/50 rounded-3xl p-6 space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-purple-300/20 pb-3">
+              <div className="flex items-center gap-3">
+                <span className="text-3xl">🐪</span>
+                <div>
+                  <h2 className="text-lg sm:text-xl font-extrabold text-white">
+                    Караван Алхимика Аль-Кеми
+                  </h2>
+                  <p className="text-xs text-amber-200/80">
+                    Средневековая полевая торговля прямо в лабиринте · Казна:{' '}
+                    <strong className="font-mono-tabular text-amber-300">🪙 {coins}</strong>
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setMerchantOpen(false)}
+                className="px-3.5 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-xs font-bold text-white"
+              >
+                Закрыть
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {/* Deal 1: Master Key */}
+              <div className="p-3.5 rounded-2xl bg-[#130E24] border border-amber-400/30 flex flex-col justify-between gap-2">
+                <div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-extrabold text-white">🗝️ Отмычка Архитектора</span>
+                    <span className="text-xs font-mono-tabular font-bold text-amber-300">30 🪙</span>
+                  </div>
+                  <p className="text-[11px] text-purple-200/75 mt-1">
+                    Мгновенно отпирает 3D-врата выхода 🏁 и опускает все 4D-Фазовые Заслонки 🟪.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  disabled={coins < 30 || (keyCollected && phaseGatesOpen)}
+                  onClick={() => {
+                    setCoins((c) => c - 30);
+                    setKeyCollected(true);
+                    setPhaseGatesOpen(true);
+                    soundFX.playStarCollect();
+                    setActionLogMessage(
+                      '🐪 Куплена Отмычка Архитектора: врата 🏁 и 4D-Заслонки 🟪 открыты!'
+                    );
+                  }}
+                  className="w-full py-2 rounded-xl bg-amber-500/25 hover:bg-amber-500/40 disabled:opacity-35 border border-amber-400/40 text-xs font-bold text-amber-200"
+                >
+                  {keyCollected && phaseGatesOpen ? 'Уже открыто' : 'Купить за 30 🪙'}
+                </button>
+              </div>
+
+              {/* Deal 2: Full Potion Belt Refill */}
+              <div className="p-3.5 rounded-2xl bg-[#130E24] border border-emerald-400/30 flex flex-col justify-between gap-2">
+                <div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-extrabold text-white">🧪 Сумка Эликсиров</span>
+                    <span className="text-xs font-mono-tabular font-bold text-emerald-300">22 🪙</span>
+                  </div>
+                  <p className="text-[11px] text-purple-200/75 mt-1">
+                    Добавляет +1 заряд ко всем 3 зельям пояса ([1] Феникс, [2] Эфир, [3] Василиск).
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  disabled={coins < 22}
+                  onClick={() => {
+                    setCoins((c) => c - 22);
+                    setPotionBelt((prev) => ({
+                      'elixir-phoenix': (prev['elixir-phoenix'] ?? 0) + 1,
+                      'ether-stargazer': (prev['ether-stargazer'] ?? 0) + 1,
+                      'oil-basilisk': (prev['oil-basilisk'] ?? 0) + 1,
+                    }));
+                    soundFX.playHeal();
+                    setActionLogMessage('🐪 Сумка Эликсиров пополнена: +1 ко всем зельям [1][2][3]!');
+                  }}
+                  className="w-full py-2 rounded-xl bg-emerald-500/25 hover:bg-emerald-500/40 disabled:opacity-35 border border-emerald-400/40 text-xs font-bold text-emerald-200"
+                >
+                  Пополнить пояс за 22 🪙
+                </button>
+              </div>
+
+              {/* Deal 3: Astral Cartographer Atlas */}
+              <div className="p-3.5 rounded-2xl bg-[#130E24] border border-cyan-400/30 flex flex-col justify-between gap-2">
+                <div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-extrabold text-white">🗺️ Астральный Атлас</span>
+                    <span className="text-xs font-mono-tabular font-bold text-cyan-300">18 🪙</span>
+                  </div>
+                  <p className="text-[11px] text-purple-200/75 mt-1">
+                    Полностью развеивает туман войны на мини-карте и даёт +2 заряда Квантового Сдвига [Q].
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  disabled={coins < 18}
+                  onClick={() => {
+                    setCoins((c) => c - 18);
+                    setQuantumCharges((q) => q + 2);
+                    const allTiles = new Set<string>();
+                    for (let r = 0; r < maze.rows; r++) {
+                      for (let c = 0; c < maze.cols; c++) {
+                        allTiles.add(`${r},${c}`);
+                      }
+                    }
+                    setExploredTiles(allTiles);
+                    soundFX.playSpell();
+                    setActionLogMessage(
+                      '🐪 Астральный Атлас открыт: весь туман войны развеян + получено +2 заряда [Q]!'
+                    );
+                  }}
+                  className="w-full py-2 rounded-xl bg-cyan-500/25 hover:bg-cyan-500/40 disabled:opacity-35 border border-cyan-400/40 text-[11px] font-bold text-cyan-200"
+                >
+                  Открыть карту за 18 🪙
+                </button>
+              </div>
+
+              {/* Deal 4: Dragonfire Blade Tempering */}
+              <div className="p-3.5 rounded-2xl bg-[#130E24] border border-rose-400/30 flex flex-col justify-between gap-2">
+                <div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-extrabold text-white">⚔️ Закалка Огнём</span>
+                    <span className="text-xs font-mono-tabular font-bold text-rose-300">35 🪙</span>
+                  </div>
+                  <p className="text-[11px] text-purple-200/75 mt-1">
+                    Навсегда повышает атаку активного героя на +6 АТК и полностью исцеляет ОЗ.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  disabled={coins < 35}
+                  onClick={() => {
+                    setCoins((c) => c - 35);
+                    setPlayerHp(activeHero.hp + activeGuild.bonusHp);
+                    setSavedHeroes((prev) =>
+                      prev.map((h) =>
+                        h.id === activeHero.id ? { ...h, attack: h.attack + 6 } : h
+                      )
+                    );
+                    soundFX.playVictory();
+                    setActionLogMessage(
+                      '🐪 Клинок закалён драконьим огнём: +6 АТК навсегда и полное исцеление ОЗ!'
+                    );
+                  }}
+                  className="w-full py-2 rounded-xl bg-rose-500/25 hover:bg-rose-500/40 disabled:opacity-35 border border-rose-400/40 text-xs font-bold text-rose-200"
+                >
+                  Закалить за 35 🪙
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -1302,9 +2583,18 @@ export default function App() {
       <ArenaBattleModal
         enemy={activeArenaEnemy}
         hero={activeHero}
+        activeFamiliar={activeFamiliar}
         playerHp={playerHp}
-        playerMaxHp={activeHero.hp}
+        playerMaxHp={activeHero.hp + activeGuild.bonusHp}
         initialStarEnergy={starEnergy}
+        activePerks={activePerks}
+        terrainBuff={
+          activeArenaEnemy
+            ? evaluateTerrainCombatBuff(maze, playerPos)
+            : undefined
+        }
+        bestiaryKills={bestiaryKills}
+        tarotAtkBonusPct={activeTarot.atkBonusPct}
         onBattleResolved={handleBattleResolved}
         onRetreat={handleArenaRetreat}
       />
@@ -1320,10 +2610,20 @@ export default function App() {
         coins={coins}
         unlockedSkins={unlockedSkins}
         onPurchaseOrEquipSkin={handlePurchaseOrEquipSkin}
+        onForgeRelicForActiveHero={handleForgeRelicForActiveHero}
+        activeFamiliarId={activeFamiliarId}
+        onSelectFamiliar={setActiveFamiliarId}
         initialTab={studioInitialTab}
       />
 
-      <SynergyCodexModal isOpen={codexOpen} onClose={() => setCodexOpen(false)} />
+      <SynergyCodexModal
+        isOpen={codexOpen}
+        onClose={() => setCodexOpen(false)}
+        bounties={bounties}
+        royalRank={royalRank}
+        bountiesCompletedCount={bountiesCompletedCount}
+        bestiaryKills={bestiaryKills}
+      />
     </div>
   );
 }
